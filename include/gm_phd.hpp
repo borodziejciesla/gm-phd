@@ -2,7 +2,10 @@
 #define GM_PHD_INCLUDE_GM_PHD_HPP_
 
 #include <algorithm>
+#include <cmath>
+#include <numbers>
 #include <numeric>
+#include <ranges>
 #include <vector>
 
 #include <Eigen/Dense>
@@ -148,7 +151,7 @@ namespace mot {
         for (const auto & measurement : measurements) {
           std::vector<Hypothesis> new_hypothesis;
           for (const auto & predicted_hypothesis : predicted_hypothesis_) {
-            const auto weight = calibrations_.pd * predicted_hypothesis.hypothesis.weight ; // * N()
+            const auto weight = calibrations_.pd * predicted_hypothesis.hypothesis.weight * NormPdf(measurement.value, predicted_hypothesis.predicted_measurement, predicted_hypothesis.innovation_matrix);
             const auto state = predicted_hypothesis.hypothesis.state + predicted_hypothesis.kalman_gain * (measurement.value - predicted_hypothesis.predicted_measurement);
             const auto covariance = predicted_hypothesis.hypothesis.covariance;
 
@@ -169,9 +172,23 @@ namespace mot {
         }
       }
 
-      void Prune(void) {}
+      void Prune(void) {
+        std::vector<Hypothesis> pruned_and_merged_hypothesis;
+        // Select elements with weigths over turncation threshold
+        auto I = hypothesis_ | std::views::filter([this](const Hypothesis & hypothesis){ return (hypothesis.weight >= calibrations_.truncation_threshold); });
+        while (~I.empty()) {
+          //
+        }
+      }
 
       void ExtractObjects(void) {}
+
+      static double NormPdf(const MeasurementSizeVector & z, const MeasurementSizeVector & nu, const MeasurementSizeMatrix & cov) {
+        const auto diff = z - nu;
+        const auto c = 1.0 / (std::sqrt(std::pow(std::numbers::pi, measurement_size) * cov.det()));
+        const auto e = std::exp(-0.5 * diff.transpose() * cov.inverse() * diff);
+        return c * e;
+      }
 
       double prev_timestamp_ = 0.0;
       std::vector<Object> objects_;

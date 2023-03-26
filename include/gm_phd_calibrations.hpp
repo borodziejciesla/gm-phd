@@ -16,6 +16,9 @@ namespace mot {
     double pd = 1.0;                                                            // Probability of detection
     double ps = 1.0;                                                            // Probability of survival
     double kappa = 0.1;
+
+    double truncation_threshold = 0.8;
+    double merging_threshold = 0.8;
   };
 } //  namespace mot
 
