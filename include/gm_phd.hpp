@@ -2,6 +2,7 @@
 #define GM_PHD_INCLUDE_GM_PHD_HPP_
 
 #include <algorithm>
+#include <numeric>
 #include <vector>
 
 #include <Eigen/Dense>
@@ -146,7 +147,24 @@ namespace mot {
       void MakeMeasurementUpdate(const std::vector<Measurement> & measurements) {
         for (const auto & measurement : measurements) {
           std::vector<Hypothesis> new_hypothesis;
+          for (const auto & predicted_hypothesis : predicted_hypothesis_) {
+            const auto weight = calibrations_.pd * predicted_hypothesis.hypothesis.weight ; // * N()
+            const auto state = predicted_hypothesis.hypothesis.state + predicted_hypothesis.kalman_gain * (measurement.value - predicted_hypothesis.predicted_measurement);
+            const auto covariance = predicted_hypothesis.hypothesis.covariance;
 
+            new_hypothesis.push_back(Hypothesis(weight, state, covariance));
+          }
+          // Correct weights
+          const auto weights_sum = std::accumulate(new_hypothesis.begin(), new_hypothesis.end(),
+            0.0,
+            [](double sum, const Hypothesis & curr) {
+              return sum + curr.weight
+            }
+          );
+          // Normalize weight
+          for (auto & hypothesis : new_hypothesis)
+            hypothesis.weight /= (calibrations_.kappa + weights_sum);
+          // Add new hypothesis to vector
         }
       }
 

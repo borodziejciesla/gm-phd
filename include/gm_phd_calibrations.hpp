@@ -15,6 +15,7 @@ namespace mot {
 
     double pd = 1.0;                                                            // Probability of detection
     double ps = 1.0;                                                            // Probability of survival
+    double kappa = 0.1;
   };
 } //  namespace mot
 
