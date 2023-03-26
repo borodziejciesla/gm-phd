@@ -11,6 +11,7 @@ namespace mot {
     std::array<double, state_size> process_noise_diagonal = {};                 // Process noise covariance matrix
 
     Eigen::Matrix<double, measurement_size, state_size> observation_matrix;     // Observation matrix
+    Eigen::Matrix<double, measurement_size, measurement_size> measurement_covariance;
 
     double pd = 1.0;                                                            // Probability of detection
     double ps = 1.0;                                                            // Probability of survival

@@ -67,7 +67,6 @@ namespace mot {
       void Predict(void) {
         PredictBirths();
         PredictExistingTargets();
-        PrepareUpdate();
       }
 
       void PredictBirths() {}
@@ -84,10 +83,58 @@ namespace mot {
           }
         );
       }
-      
-      void PrepareUpdate() {}
 
-      void Update(const std::vector<Measurement> & measurements) {}
+      void Update(const std::vector<Measurement> & measurements) {
+        PrepareUpdateComponents();
+        UpdateExistedHypothesis();
+        MakeMeasurementUpdate(measurements);
+      }
+
+      void PrepareUpdateComponents(void) {
+        // Clear
+        predicted_measurements_.clear();
+        innovation_matrix_.clear();
+        kalman_gains_.clear();
+        updated_covariances_.clear();
+        // Prepare for update
+        for (const auto & hypothesis : hypothesis_) {
+          const auto predicted_measurement = calibrations_.observation_matrix * hypothesis.state;
+          const auto innovation_covariance = calibrations_.measurement_covariance
+            + calibrations_.observation_matrix * hypothesis.covariance * calibrations_.observation_matrix.transpose();
+          const auto kalman_gain = hypothesis.covariance * calibrations_.observation_matrix.transpose()
+            * innovation_covariance.inverse();
+          const auto predicted_covariance = (StateSizeMatrix::Identity() - kalman_gain * calibrations_.observation_matrix)
+            * hypothesis.covariance;
+          // Update predicted vectors
+          predicted_measurements_.push_back(predicted_measurement);
+          innovation_matrix_.push_back(innovation_covariance);
+          kalman_gains_.push_back(kalman_gain);
+          updated_covariances_.push_back(predicted_covariance);
+        }
+      }
+
+      void UpdateExistedHypothesis(void) {
+        hypothesis_.clear();
+        std::transform(predicted_hypothesis_.begin(), predicted_hypothesis_.end(),
+          std::back_inserter(hypothesis_),
+          [this](const Hypothesis & hypothesis) {
+            static Hypothesis updated_hypothesis;
+
+            updated_hypothesis.weight = (1.0 - calibrations_.pd) * hypothesis.weight;
+            updated_hypothesis.state = hypothesis.state;
+            updated_hypothesis.covariance = hypothesis.covariance;
+
+            return updated_hypothesis;
+          }
+        );
+      }
+
+      void MakeMeasurementUpdate(const std::vector<Measurement> & measurements) {
+        for (const auto & measurement : measurements) {
+          std::vector<Hypothesis> new_hypothesis;
+
+        }
+      }
 
       void Prune(void) {}
 
@@ -97,6 +144,11 @@ namespace mot {
       std::vector<Object> objects_;
       std::vector<Hypothesis> hypothesis_;
       std::vector<Hypothesis> predicted_hypothesis_;
+
+      std::vector<MeasurementSizeVector> predicted_measurements_;
+      std::vector<MeasurementSizeMatrix> innovation_matrix_;
+      std::vector<Eigen::Matrix<double, state_size, measurement_size>> kalman_gains_;
+      std::vector<StateSizeMatrix> updated_covariances_;
   };
 };  //  namespace eot
 
