@@ -43,9 +43,36 @@ namespace mot {
 
     protected:
       struct Hypothesis {
+        Hypothesis(void) = default;
+        Hypothesis(const double w, const StateSizeVector & s, const StateSizeMatrix & c)
+          : weight{w}
+          , state{s}
+          , covariance{c} {}
+
         double weight = 0.0;
         StateSizeVector state = StateSizeVector::Zero();
         StateSizeMatrix covariance = StateSizeMatrix::Zero();
+      };
+
+      struct PredictedHypothesis {
+        PredictedHypothesis(void) = default;
+        PredictedHypothesis(const Hypothesis * h,
+          const MeasurementSizeVector & pm,
+          const MeasurementSizeMatrix & im,
+          const Eigen::Matrix<double, state_size, measurement_size> & kg,
+          const StateSizeMatrix & uc)
+          : hypothesis{h}
+          , predicted_measurement{pm}
+          , innovation_matrix{im}
+          , kalman_gain{kg}
+          , updated_covariance{uc} {}
+
+        Hypothesis hypothesis;
+
+        MeasurementSizeVector predicted_measurement;
+        MeasurementSizeMatrix innovation_matrix;
+        Eigen::Matrix<double, state_size, measurement_size> kalman_gain;
+        StateSizeMatrix updated_covariance;
       };
 
       virtual Hypothesis PredictHypothesis(const Hypothesis & hypothesis) = 0;
@@ -69,48 +96,35 @@ namespace mot {
         PredictExistingTargets();
       }
 
-      void PredictBirths() {}
+      void PredictBirths(void) {}
 
       void PredictExistingTargets(void) {
         // Prepare for prediction 
         PrepareTransitionMatrix();
         PrepareProcessNoiseMatrix();
         // Predict
+        predicted_hypothesis_.clear();
         std::transform(hypothesis_.begin(), hypothesis_.end(),
           std::back_inserter(predicted_hypothesis_),
           [this](const Hypothesis & hypothesis) {
-            return PredictHypothesis(hypothesis);
+            const auto predicted_state = PredictHypothesis(hypothesis);
+
+            const auto predicted_measurement = calibrations_.observation_matrix * hypothesis.state;
+            const auto innovation_covariance = calibrations_.measurement_covariance
+              + calibrations_.observation_matrix * hypothesis.covariance * calibrations_.observation_matrix.transpose();
+            const auto kalman_gain = hypothesis.covariance * calibrations_.observation_matrix.transpose()
+              * innovation_covariance.inverse();
+            const auto predicted_covariance = (StateSizeMatrix::Identity() - kalman_gain * calibrations_.observation_matrix)
+              * hypothesis.covariance;
+
+            return PredictedHypothesis(predicted_state, predicted_measurement, innovation_covariance, kalman_gain, predicted_covariance);
           }
         );
       }
 
       void Update(const std::vector<Measurement> & measurements) {
-        PrepareUpdateComponents();
         UpdateExistedHypothesis();
         MakeMeasurementUpdate(measurements);
-      }
-
-      void PrepareUpdateComponents(void) {
-        // Clear
-        predicted_measurements_.clear();
-        innovation_matrix_.clear();
-        kalman_gains_.clear();
-        updated_covariances_.clear();
-        // Prepare for update
-        for (const auto & hypothesis : hypothesis_) {
-          const auto predicted_measurement = calibrations_.observation_matrix * hypothesis.state;
-          const auto innovation_covariance = calibrations_.measurement_covariance
-            + calibrations_.observation_matrix * hypothesis.covariance * calibrations_.observation_matrix.transpose();
-          const auto kalman_gain = hypothesis.covariance * calibrations_.observation_matrix.transpose()
-            * innovation_covariance.inverse();
-          const auto predicted_covariance = (StateSizeMatrix::Identity() - kalman_gain * calibrations_.observation_matrix)
-            * hypothesis.covariance;
-          // Update predicted vectors
-          predicted_measurements_.push_back(predicted_measurement);
-          innovation_matrix_.push_back(innovation_covariance);
-          kalman_gains_.push_back(kalman_gain);
-          updated_covariances_.push_back(predicted_covariance);
-        }
       }
 
       void UpdateExistedHypothesis(void) {
@@ -143,12 +157,7 @@ namespace mot {
       double prev_timestamp_ = 0.0;
       std::vector<Object> objects_;
       std::vector<Hypothesis> hypothesis_;
-      std::vector<Hypothesis> predicted_hypothesis_;
-
-      std::vector<MeasurementSizeVector> predicted_measurements_;
-      std::vector<MeasurementSizeMatrix> innovation_matrix_;
-      std::vector<Eigen::Matrix<double, state_size, measurement_size>> kalman_gains_;
-      std::vector<StateSizeMatrix> updated_covariances_;
+      std::vector<PredictedHypothesis> predicted_hypothesis_;
   };
 };  //  namespace eot
 
