@@ -215,10 +215,22 @@ namespace mot {
           // Remove L from I
           for (const auto l : L)
             std::ranges::remove_if(L, l);
+          // Set final hypothesis
+          hypothesis_ = pruned_and_merged_hypothesis;
         }
       }
 
-      void ExtractObjects(void) {}
+      void ExtractObjects(void) {
+        objects_.clear();
+        for (const auto & hypothesis : hypothesis_) {
+          if (hypothesis.weight > 0.5) {
+            Object object;
+            object.value = hypothesis.state;
+            object.covariance = hypothesis.covariance;
+            objects_.push_back(object);
+          }
+        }
+      }
 
       static double NormPdf(const MeasurementSizeVector & z, const MeasurementSizeVector & nu, const MeasurementSizeMatrix & cov) {
         const auto diff = z - nu;
