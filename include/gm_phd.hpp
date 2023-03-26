@@ -48,6 +48,9 @@ namespace mot {
     protected:
       struct Hypothesis {
         Hypothesis(void) = default;
+        Hypothesis(Hypothesis&) = default;
+        Hypothesis(Hypothesis&&) = default;
+        Hypothesis & operator=(const Hypothesis&) = default;
         Hypothesis(const double w, const StateSizeVector & s, const StateSizeMatrix & c)
           : weight{w}
           , state{s}
@@ -60,7 +63,10 @@ namespace mot {
 
       struct PredictedHypothesis {
         PredictedHypothesis(void) = default;
-        PredictedHypothesis(const Hypothesis * h,
+        PredictedHypothesis(PredictedHypothesis&) = default;
+        PredictedHypothesis(PredictedHypothesis&&) = default;
+        PredictedHypothesis & operator=(const PredictedHypothesis&) = default;
+        PredictedHypothesis(const Hypothesis & h,
           const MeasurementSizeVector & pm,
           const MeasurementSizeMatrix & im,
           const Eigen::Matrix<double, state_size, measurement_size> & kg,
@@ -186,7 +192,7 @@ namespace mot {
           // Select hypothesis in merging threshold
           auto L = I | std::views::filter(
             [maximum_weight_hypothesis](const Hypothesis & hypothesis) {
-              const auto diff = hypothesis.state - maximum_weight_hypothesis->weight;
+              const auto diff = hypothesis.state - maximum_weight_hypothesis->state;
               const auto distance_matrix = diff.transpose() * hypothesis.covariance.inverse() * diff;
               return distance_matrix(0);
             }
@@ -213,8 +219,8 @@ namespace mot {
           );
           pruned_and_merged_hypothesis.push_back(Hypothesis(merged_weight, merged_state, merged_covariance));
           // Remove L from I
-          for (const auto l : L)
-            std::ranges::remove_if(L, l);
+          // for (const auto l : L)
+          //   std::ranges::remove_if(L, l);
           // Set final hypothesis
           hypothesis_ = pruned_and_merged_hypothesis;
         }
@@ -234,7 +240,7 @@ namespace mot {
 
       static double NormPdf(const MeasurementSizeVector & z, const MeasurementSizeVector & nu, const MeasurementSizeMatrix & cov) {
         const auto diff = z - nu;
-        const auto c = 1.0 / (std::sqrt(std::pow(std::numbers::pi, measurement_size) * cov.det()));
+        const auto c = 1.0 / (std::sqrt(std::pow(std::numbers::pi, measurement_size) * cov.determinant()));
         const auto e = std::exp(-0.5 * diff.transpose() * cov.inverse() * diff);
         return c * e;
       }

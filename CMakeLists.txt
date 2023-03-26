@@ -34,14 +34,14 @@ target_link_libraries(${PROJECT_NAME}
   Eigen3::Eigen
 )
 
-# ###############################################
-# ################# Examples ####################
-# ###############################################
-# if(BUILD_EXAMPLE)
-#     project(${EXAMPLE_PROJECT_NAME})
+###############################################
+################# Examples ####################
+###############################################
+if(BUILD_EXAMPLE)
+    project(${EXAMPLE_PROJECT_NAME})
     
-#     add_subdirectory(example)
-# endif() # BUILD_EXAMPLE
+    add_subdirectory(example)
+endif() # BUILD_EXAMPLE
 
 # ###############################################
 # ################ Unit Tests ###################
