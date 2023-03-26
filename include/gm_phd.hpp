@@ -177,7 +177,44 @@ namespace mot {
         // Select elements with weigths over turncation threshold
         auto I = hypothesis_ | std::views::filter([this](const Hypothesis & hypothesis){ return (hypothesis.weight >= calibrations_.truncation_threshold); });
         while (~I.empty()) {
-          //
+          // Select maximum weight element
+          const auto maximum_weight_hypothesis = std::max_element(I.begin(), I.end(),
+            [](const Hypothesis & a, const Hypothesis & b) {
+              return a.weight > b.weight;
+            }
+          );
+          // Select hypothesis in merging threshold
+          auto L = I | std::views::filter(
+            [maximum_weight_hypothesis](const Hypothesis & hypothesis) {
+              const auto diff = hypothesis.state - maximum_weight_hypothesis->weight;
+              const auto distance_matrix = diff.transpose() * hypothesis.covariance.inverse() * diff;
+              return distance_matrix(0);
+            }
+          );
+          // Calculate new merged element
+          const auto merged_weight = std::accumulate(L.begin(), L.end(),
+            0.0,
+            [](double sum, const Hypothesis & hypothesis) {
+              return sum + hypothesis.weight;
+            }
+          );
+          const auto merged_state = (1.0 / merged_weight) * std::accumulate(L.begin(), L.end(),
+            StateSizeVector::Zero(),
+            [](StateSizeVector sum, const Hypothesis & hypothesis) {
+              return sum + hypothesis.weight * hypothesis.state;
+            }
+          );
+          const auto merged_covariance = (1.0 / merged_weight) * std::accumulate(L.begin(), L.end(),
+            StateSizeMatrix::Zero(),
+            [merged_state](StateSizeMatrix sum, const Hypothesis & hypothesis) {
+              const auto diff = merged_state - hypothesis.state;
+              return sum + (hypothesis.covariance + diff * diff.transpose());
+            }
+          );
+          pruned_and_merged_hypothesis.push_back(Hypothesis(merged_weight, merged_state, merged_covariance));
+          // Remove L from I
+          for (const auto l : L)
+            std::ranges::remove_if(L, l);
         }
       }
 
