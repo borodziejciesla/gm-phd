@@ -158,13 +158,14 @@ namespace mot {
           const auto weights_sum = std::accumulate(new_hypothesis.begin(), new_hypothesis.end(),
             0.0,
             [](double sum, const Hypothesis & curr) {
-              return sum + curr.weight
+              return sum + curr.weight;
             }
           );
           // Normalize weight
           for (auto & hypothesis : new_hypothesis)
             hypothesis.weight /= (calibrations_.kappa + weights_sum);
           // Add new hypothesis to vector
+          hypothesis_.insert(hypothesis_.end(), new_hypothesis.begin(), new_hypothesis.end());
         }
       }
 
