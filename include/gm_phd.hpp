@@ -48,13 +48,19 @@ namespace mot {
     protected:
       struct Hypothesis {
         Hypothesis(void) = default;
-        Hypothesis(Hypothesis&) = default;
+        Hypothesis(const Hypothesis&) = default;
         Hypothesis(Hypothesis&&) = default;
         Hypothesis & operator=(const Hypothesis&) = default;
-        Hypothesis(const double w, const StateSizeVector & s, const StateSizeMatrix & c)
+        Hypothesis(const double w, const StateSizeVector s, const StateSizeMatrix c)
           : weight{w}
           , state{s}
           , covariance{c} {}
+
+        bool operator==(const Hypothesis & arg) {
+          return (weight == arg.weight)
+            && (state == arg.state)
+            && (covariance == arg.covariance);
+        }
 
         double weight = 0.0;
         StateSizeVector state = StateSizeVector::Zero();
@@ -63,14 +69,14 @@ namespace mot {
 
       struct PredictedHypothesis {
         PredictedHypothesis(void) = default;
-        PredictedHypothesis(PredictedHypothesis&) = default;
+        PredictedHypothesis(const PredictedHypothesis&) = default;
         PredictedHypothesis(PredictedHypothesis&&) = default;
         PredictedHypothesis & operator=(const PredictedHypothesis&) = default;
-        PredictedHypothesis(const Hypothesis & h,
-          const MeasurementSizeVector & pm,
-          const MeasurementSizeMatrix & im,
-          const Eigen::Matrix<double, state_size, measurement_size> & kg,
-          const StateSizeMatrix & uc)
+        PredictedHypothesis(const Hypothesis h,
+          const MeasurementSizeVector pm,
+          const MeasurementSizeMatrix im,
+          const Eigen::Matrix<double, state_size, measurement_size> kg,
+          const StateSizeMatrix uc)
           : hypothesis{h}
           , predicted_measurement{pm}
           , innovation_matrix{im}
@@ -140,13 +146,13 @@ namespace mot {
       void UpdateExistedHypothesis(void) {
         hypothesis_.clear();
         std::transform(predicted_hypothesis_.begin(), predicted_hypothesis_.end(),
-          std::back_inserter(hypothesis_),
-          [this](const Hypothesis & hypothesis) {
-            static Hypothesis updated_hypothesis;
+          std::back_inserter(predicted_hypothesis_),
+          [this](const PredictedHypothesis & hypothesis) {
+            static PredictedHypothesis updated_hypothesis;
 
-            updated_hypothesis.weight = (1.0 - calibrations_.pd) * hypothesis.weight;
-            updated_hypothesis.state = hypothesis.state;
-            updated_hypothesis.covariance = hypothesis.covariance;
+            updated_hypothesis.hypothesis.weight = (1.0 - calibrations_.pd) * hypothesis.hypothesis.weight;
+            updated_hypothesis.hypothesis.state = hypothesis.hypothesis.state;
+            updated_hypothesis.hypothesis.covariance = hypothesis.hypothesis.covariance;
 
             return updated_hypothesis;
           }
@@ -181,8 +187,9 @@ namespace mot {
       void Prune(void) {
         std::vector<Hypothesis> pruned_and_merged_hypothesis;
         // Select elements with weigths over turncation threshold
-        auto I = hypothesis_ | std::views::filter([this](const Hypothesis & hypothesis){ return (hypothesis.weight >= calibrations_.truncation_threshold); });
-        while (~I.empty()) {
+        auto high_weight_filter = std::views::filter([this](const Hypothesis & hypothesis){ return (hypothesis.weight >= calibrations_.truncation_threshold); });
+        auto I = hypothesis_ | high_weight_filter;
+        while (~std::ranges::empty(I)) {
           // Select maximum weight element
           const auto maximum_weight_hypothesis = std::max_element(I.begin(), I.end(),
             [](const Hypothesis & a, const Hypothesis & b) {
@@ -190,13 +197,14 @@ namespace mot {
             }
           );
           // Select hypothesis in merging threshold
-          auto L = I | std::views::filter(
+          auto close_to_maximum_filter = std::views::filter(
             [maximum_weight_hypothesis](const Hypothesis & hypothesis) {
               const auto diff = hypothesis.state - maximum_weight_hypothesis->state;
               const auto distance_matrix = diff.transpose() * hypothesis.covariance.inverse() * diff;
               return distance_matrix(0);
             }
           );
+          auto L = hypothesis_ | high_weight_filter | close_to_maximum_filter;
           // Calculate new merged element
           const auto merged_weight = std::accumulate(L.begin(), L.end(),
             0.0,
@@ -204,23 +212,21 @@ namespace mot {
               return sum + hypothesis.weight;
             }
           );
-          const auto merged_state = (1.0 / merged_weight) * std::accumulate(L.begin(), L.end(),
-            StateSizeVector::Zero(),
-            [](StateSizeVector sum, const Hypothesis & hypothesis) {
-              return sum + hypothesis.weight * hypothesis.state;
-            }
-          );
-          const auto merged_covariance = (1.0 / merged_weight) * std::accumulate(L.begin(), L.end(),
-            StateSizeMatrix::Zero(),
-            [merged_state](StateSizeMatrix sum, const Hypothesis & hypothesis) {
-              const auto diff = merged_state - hypothesis.state;
-              return sum + (hypothesis.covariance + diff * diff.transpose());
-            }
-          );
+          
+          StateSizeVector merged_state = StateSizeVector::Zero();
+          for (const auto l : L)
+            merged_state += (l.weight * l.state) / merged_weight;
+
+          StateSizeMatrix merged_covariance = StateSizeMatrix::Zero();
+          for (const auto l : L) {
+            const auto diff = merged_state - l.state;
+            merged_covariance += (l.covariance + diff * diff.transpose()) / merged_weight;
+          }
+
           pruned_and_merged_hypothesis.push_back(Hypothesis(merged_weight, merged_state, merged_covariance));
           // Remove L from I
-          // for (const auto l : L)
-          //   std::ranges::remove_if(L, l);
+          for (const auto l : L)
+            std::erase(hypothesis_, l);
           // Set final hypothesis
           hypothesis_ = pruned_and_merged_hypothesis;
         }
