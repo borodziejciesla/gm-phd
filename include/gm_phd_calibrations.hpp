@@ -13,11 +13,11 @@ namespace mot {
     Eigen::Matrix<double, measurement_size, state_size> observation_matrix;     // Observation matrix
     Eigen::Matrix<double, measurement_size, measurement_size> measurement_covariance;
 
-    double pd = 1.0;                                                            // Probability of detection
-    double ps = 1.0;                                                            // Probability of survival
+    double pd = 0.8;                                                            // Probability of detection
+    double ps = 0.8;                                                            // Probability of survival
     double kappa = 0.1;
 
-    double truncation_threshold = 0.8;
+    double truncation_threshold = 0.1;
     double merging_threshold = 0.8;
   };
 } //  namespace mot

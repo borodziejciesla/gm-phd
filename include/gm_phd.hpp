@@ -94,6 +94,9 @@ namespace mot {
       virtual Hypothesis PredictHypothesis(const Hypothesis & hypothesis) = 0;
       virtual void PrepareTransitionMatrix(void) = 0;
       virtual void PrepareProcessNoiseMatrix(void) = 0;
+      virtual void PredictBirths(void) = 0;
+
+      std::vector<PredictedHypothesis> predicted_hypothesis_;
 
       double time_delta = 0.0;
       GmPhdCalibrations<state_size, measurement_size> calibrations_;
@@ -108,18 +111,16 @@ namespace mot {
       }
 
       void Predict(void) {
+        predicted_hypothesis_.clear();
         PredictBirths();
         PredictExistingTargets();
       }
-
-      void PredictBirths(void) {}
 
       void PredictExistingTargets(void) {
         // Prepare for prediction 
         PrepareTransitionMatrix();
         PrepareProcessNoiseMatrix();
         // Predict
-        predicted_hypothesis_.clear();
         std::transform(hypothesis_.begin(), hypothesis_.end(),
           std::back_inserter(predicted_hypothesis_),
           [this](const Hypothesis & hypothesis) {
@@ -146,7 +147,7 @@ namespace mot {
       void UpdateExistedHypothesis(void) {
         hypothesis_.clear();
         std::transform(predicted_hypothesis_.begin(), predicted_hypothesis_.end(),
-          std::back_inserter(predicted_hypothesis_),
+          predicted_hypothesis_.begin(),
           [this](const PredictedHypothesis & hypothesis) {
             static PredictedHypothesis updated_hypothesis;
 
@@ -254,7 +255,6 @@ namespace mot {
       double prev_timestamp_ = 0.0;
       std::vector<Object> objects_;
       std::vector<Hypothesis> hypothesis_;
-      std::vector<PredictedHypothesis> predicted_hypothesis_;
   };
 };  //  namespace eot
 

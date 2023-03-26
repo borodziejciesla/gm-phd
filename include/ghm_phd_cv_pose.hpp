@@ -13,6 +13,8 @@ namespace mot {
       Hypothesis PredictHypothesis(const Hypothesis & hypothesis);
       void PrepareTransitionMatrix(void);
       void PrepareProcessNoiseMatrix(void);
+
+      void PredictBirths(void);
   };
 } //  namespace mot
 
