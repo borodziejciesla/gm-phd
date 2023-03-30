@@ -17,8 +17,8 @@ namespace mot {
     double ps = 0.8;                                                            // Probability of survival
     double kappa = 0.1;
 
-    double truncation_threshold = 0.1;
-    double merging_threshold = 0.8;
+    double truncation_threshold = 0.02;
+    double merging_threshold = 15.0;
   };
 } //  namespace mot
 

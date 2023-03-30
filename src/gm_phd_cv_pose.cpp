@@ -6,8 +6,8 @@ namespace mot {
   std::random_device r;
   std::default_random_engine e(r());
 
-  std::uniform_real_distribution<double> pose_dist(-150, 150);
-  std::uniform_real_distribution<double> velocity_dist(-10, 10);
+  std::uniform_real_distribution<double> pose_dist(-10.0, 10.0);
+  std::uniform_real_distribution<double> velocity_dist(-1.0, 1.0);
 
   GmPhdCvPose::GmPhdCvPose(const GmPhdCalibrations<4u, 2u> & calibrations)
     : GmPhd<4u, 2u>(calibrations) {}
@@ -18,7 +18,7 @@ namespace mot {
     predicted_hypothesis.weight = calibrations_.pd * hypothesis.weight;
     predicted_hypothesis.state = transition_matrix_ * hypothesis.state;
     predicted_hypothesis.covariance = transition_matrix_ * hypothesis.covariance * transition_matrix_.transpose()
-      + process_noise_covariance_matrix_;
+      + time_delta * process_noise_covariance_matrix_;
 
     return predicted_hypothesis;
   }
@@ -45,19 +45,24 @@ namespace mot {
   }
 
   void GmPhdCvPose::PredictBirths(void) {
-    for (auto index = 0; index < 100u; index++) {
-      PredictedHypothesis birth_hypothesis;
+    for (auto index = 0; index < 1000u; index++) {
+      Hypothesis birth_hypothesis;
 
-      birth_hypothesis.hypothesis.weight = 1.0;
+      birth_hypothesis.weight = 1.0;
 
-      birth_hypothesis.hypothesis.state(0u) = pose_dist(e);
-      birth_hypothesis.hypothesis.state(1u) = pose_dist(e);
-      birth_hypothesis.hypothesis.state(2u) = velocity_dist(e);
-      birth_hypothesis.hypothesis.state(3u) = velocity_dist(e);
+      birth_hypothesis.state(0u) = pose_dist(e);
+      birth_hypothesis.state(1u) = pose_dist(e);
+      birth_hypothesis.state(2u) = velocity_dist(e);
+      birth_hypothesis.state(3u) = velocity_dist(e);
 
-      birth_hypothesis.hypothesis.covariance = 5.0 * StateSizeMatrix::Identity();
+      birth_hypothesis.covariance = 0.01 * StateSizeMatrix::Identity();
 
-      predicted_hypothesis_.push_back(birth_hypothesis);
+      const auto predicted_measurement = calibrations_.observation_matrix * birth_hypothesis.state;
+      const auto innovation_covariance = calibrations_.measurement_covariance + calibrations_.observation_matrix * birth_hypothesis.covariance * calibrations_.observation_matrix.transpose();
+      const auto kalman_gain = birth_hypothesis.covariance * calibrations_.observation_matrix.transpose() * innovation_covariance.inverse();
+      const auto predicted_covariance = (StateSizeMatrix::Identity() - kalman_gain * calibrations_.observation_matrix) * birth_hypothesis.covariance;
+
+      predicted_hypothesis_.push_back(PredictedHypothesis(birth_hypothesis, predicted_measurement, innovation_covariance, kalman_gain, predicted_covariance));
     }
   }
 } // namespace mot

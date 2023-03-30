@@ -149,7 +149,7 @@ namespace mot {
         std::transform(predicted_hypothesis_.begin(), predicted_hypothesis_.end(),
           predicted_hypothesis_.begin(),
           [this](const PredictedHypothesis & hypothesis) {
-            static PredictedHypothesis updated_hypothesis;
+            PredictedHypothesis updated_hypothesis = hypothesis;
 
             updated_hypothesis.hypothesis.weight = (1.0 - calibrations_.pd) * hypothesis.hypothesis.weight;
             updated_hypothesis.hypothesis.state = hypothesis.hypothesis.state;
@@ -186,57 +186,86 @@ namespace mot {
       }
 
       void Prune(void) {
-        std::vector<Hypothesis> pruned_and_merged_hypothesis;
         // Select elements with weigths over turncation threshold
-        auto high_weight_filter = std::views::filter([this](const Hypothesis & hypothesis){ return (hypothesis.weight >= calibrations_.truncation_threshold); });
-        auto I = hypothesis_ | high_weight_filter;
-        while (~std::ranges::empty(I)) {
+        std::vector<Hypothesis> pruned_hypothesis;
+        std::copy_if(hypothesis_.begin(), hypothesis_.end(),
+          std::back_inserter(pruned_hypothesis),
+          [this](const Hypothesis & hypothesis) {
+            return hypothesis.weight >= calibrations_.truncation_threshold;
+          }
+        );
+        std::vector<std::pair<Hypothesis, bool>> pruned_hypothesis_marked;
+        std::transform(pruned_hypothesis.begin(), pruned_hypothesis.end(),
+          std::back_inserter(pruned_hypothesis_marked),
+          [](const Hypothesis & hypothesis) {
+            return std::make_pair(hypothesis, false);
+          }        
+        );
+
+        // Merge hypothesis
+        std::vector<Hypothesis> merged_hypothesis;
+        auto non_marked_hypothesis_counter = [](size_t sum, const std::pair<Hypothesis, bool> & markable_hypothesis) {
+          return sum + (markable_hypothesis.second ? 0u : 1u);
+        };
+        auto non_merged_hypothesis_number = std::accumulate(pruned_hypothesis_marked.begin(), pruned_hypothesis_marked.end(), 0u, non_marked_hypothesis_counter);
+
+        while (non_merged_hypothesis_number > 0u) {
+          auto I = pruned_hypothesis_marked | std::views::filter([](const std::pair<Hypothesis, bool> & hypothesis_mark) { return !hypothesis_mark.second; });
+
           // Select maximum weight element
-          const auto maximum_weight_hypothesis = std::max_element(I.begin(), I.end(),
-            [](const Hypothesis & a, const Hypothesis & b) {
-              return a.weight > b.weight;
+          const auto maximum_weight_hypothesis = *std::max_element(I.begin(), I.end(),
+            [](const std::pair<Hypothesis, bool> & a, const std::pair<Hypothesis, bool> & b) {
+              return a.first.weight < b.first.weight;
             }
           );
+
           // Select hypothesis in merging threshold
-          auto close_to_maximum_filter = std::views::filter(
-            [maximum_weight_hypothesis](const Hypothesis & hypothesis) {
-              const auto diff = hypothesis.state - maximum_weight_hypothesis->state;
-              const auto distance_matrix = diff.transpose() * hypothesis.covariance.inverse() * diff;
-              return distance_matrix(0);
+          auto L = pruned_hypothesis_marked | std::views::filter(
+            [maximum_weight_hypothesis,this](const std::pair<Hypothesis, bool> & markable_hypothesis) {
+              const auto diff = markable_hypothesis.first.state - maximum_weight_hypothesis.first.state;
+              const auto distance_matrix = diff.transpose() * markable_hypothesis.first.covariance.inverse() * diff;
+              return (distance_matrix(0) < calibrations_.merging_threshold) && !markable_hypothesis.second;
             }
           );
-          auto L = hypothesis_ | high_weight_filter | close_to_maximum_filter;
+
           // Calculate new merged element
           const auto merged_weight = std::accumulate(L.begin(), L.end(),
             0.0,
-            [](double sum, const Hypothesis & hypothesis) {
-              return sum + hypothesis.weight;
+            [](double sum, const std::pair<Hypothesis, bool> & hypothesis) {
+              return sum + hypothesis.first.weight;
             }
           );
           
           StateSizeVector merged_state = StateSizeVector::Zero();
           for (const auto l : L)
-            merged_state += (l.weight * l.state) / merged_weight;
+            merged_state += (l.first.weight * l.first.state) / merged_weight;
 
           StateSizeMatrix merged_covariance = StateSizeMatrix::Zero();
           for (const auto l : L) {
-            const auto diff = merged_state - l.state;
-            merged_covariance += (l.covariance + diff * diff.transpose()) / merged_weight;
+            const auto diff = merged_state - l.first.state;
+            merged_covariance += (l.first.covariance + diff * diff.transpose()) / merged_weight;
           }
 
-          pruned_and_merged_hypothesis.push_back(Hypothesis(merged_weight, merged_state, merged_covariance));
+          merged_hypothesis.push_back(Hypothesis(merged_weight, merged_state, merged_covariance));
           // Remove L from I
-          for (const auto l : L)
-            std::erase(hypothesis_, l);
-          // Set final hypothesis
-          hypothesis_ = pruned_and_merged_hypothesis;
+          std::transform(L.begin(), L.end(),
+           L.begin(),
+            [](std::pair<Hypothesis, bool> & markable_hypothesis) {
+              markable_hypothesis.second = true;
+              return markable_hypothesis;
+            }
+          );
+          //
+          non_merged_hypothesis_number = std::accumulate(pruned_hypothesis_marked.begin(), pruned_hypothesis_marked.end(), 0u, non_marked_hypothesis_counter);
         }
+        // Set final hypothesis
+        hypothesis_ = merged_hypothesis;
       }
 
       void ExtractObjects(void) {
         objects_.clear();
         for (const auto & hypothesis : hypothesis_) {
-          if (hypothesis.weight > 0.5) {
+          if (hypothesis.weight > 0.05) {
             Object object;
             object.value = hypothesis.state;
             object.covariance = hypothesis.covariance;
