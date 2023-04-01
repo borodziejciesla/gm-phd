@@ -45,7 +45,7 @@ namespace mot {
   }
 
   void GmPhdCvPose::PredictBirths(void) {
-    for (auto index = 0; index < 1000u; index++) {
+    for (auto index = 0; index < 10000u; index++) {
       Hypothesis birth_hypothesis;
 
       birth_hypothesis.weight = 1.0;

@@ -18,7 +18,7 @@ namespace mot {
     double kappa = 0.1;
 
     double truncation_threshold = 0.02;
-    double merging_threshold = 15.0;
+    double merging_threshold = 16.8119;
   };
 } //  namespace mot
 

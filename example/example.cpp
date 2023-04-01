@@ -68,13 +68,13 @@ int main () {
   //Create Filter
   mot::GmPhdCalibrations<4u, 2u> calibrations;
   
-  calibrations.process_noise_diagonal = {10.0, 10.0, 10.0, 10.0};
+  calibrations.process_noise_diagonal = {1.0, 1.0, 1.0, 1.0};
 
   calibrations.observation_matrix = Eigen::Matrix<double, 2u, 4u>::Zero();
   calibrations.observation_matrix(0u, 0u) = 1.0;
   calibrations.observation_matrix(1u, 1u) = 1.0;
 
-  calibrations.measurement_covariance = Eigen::Matrix<double, 2u, 2u>::Identity();
+  calibrations.measurement_covariance = 0.2 * Eigen::Matrix<double, 2u, 2u>::Identity();
 
   mot::GmPhdCvPose gm_phd_filter = mot::GmPhdCvPose(calibrations);
 
@@ -123,7 +123,7 @@ int main () {
   plt::figure_size(1200, 780);
   plt::xlabel("X [m]");
   plt::ylabel("Y [m]");
-  plt::plot(objects_x, objects_y, "b.");
+  plt::plot(objects_x, objects_y, "b+");
   plt::plot(ref_objects_x, ref_objects_y, "r.");
   plt::plot(meas_objects_x, meas_objects_y, "g.");
   plt::show();
