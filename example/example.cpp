@@ -20,7 +20,7 @@ std::default_random_engine e1(r());
 std::uniform_real_distribution<double> pose_dist(-10.0, 10.0);
 std::uniform_real_distribution<double> velocity_dist(-1.0, 1.0);
 
-std::normal_distribution<> measurement_noisse(0.0, 0.1);
+std::normal_distribution<> measurement_noisse(0.0, 0.3);
 
 using Measurements = std::vector<mot::GmPhdCvPose::Measurement>;
 
@@ -57,7 +57,7 @@ std::vector<Measurements> GenerateMeasurements(const std::vector<Measurements> &
     for (auto & measurement : measurement_scan) {
       measurement.value(0u) += measurement_noisse(e1);
       measurement.value(1u) += measurement_noisse(e1);
-      measurement.covariance = 0.1 * mot::GmPhdCvPose::MeasurementSizeMatrix::Identity();
+      measurement.covariance = 0.3 * mot::GmPhdCvPose::MeasurementSizeMatrix::Identity();
     }
   }
   return measurements;

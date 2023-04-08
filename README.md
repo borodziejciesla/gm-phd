@@ -35,3 +35,21 @@ Zachary Prihoda, Arec Jamgochian, Ben Moore, Bernard Lange
 ![alt text](fig/fig5_y.png)
 
 ![alt text](fig/fig5_on.png)
+
+### 4.
+![alt text](fig/fig7.png)
+
+![alt text](fig/fig7_x.png)
+
+![alt text](fig/fig7_y.png)
+
+![alt text](fig/fig7_on.png)
+
+### 5.
+![alt text](fig/fig8.png)
+
+![alt text](fig/fig8_x.png)
+
+![alt text](fig/fig8_y.png)
+
+![alt text](fig/fig8_on.png)
