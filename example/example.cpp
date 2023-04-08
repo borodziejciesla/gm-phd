@@ -84,10 +84,12 @@ int main () {
 
   // Run Filter
   std::vector<std::vector<mot::GmPhdCvPose::Object>> objects_all;
+  std::vector<int> objects_number;
   for (auto index = 0u; index < measurements_number; index++) {
     gm_phd_filter.Run(static_cast<double>(index) * dt, measurements.at(index));
     const auto objects = gm_phd_filter.GetObjects();
     objects_all.push_back(objects);
+    objects_number.push_back(objects.size());
     std::cout << "Scan index: " << index << ", Objects number: " << objects.size() << ", Weights Sum: " << gm_phd_filter.GetWeightsSum() << "\n";
   }
 
@@ -126,6 +128,30 @@ int main () {
   plt::plot(objects_x, objects_y, "b+");
   plt::plot(ref_objects_x, ref_objects_y, "r.");
   plt::plot(meas_objects_x, meas_objects_y, "g.");
+  plt::show();
+
+
+  // Plot on directions
+  plt::figure_size(1200, 780);
+  plt::xlabel("X [m]");
+  plt::ylabel("Index [-]");
+  plt::plot(objects_x, "b+");
+  plt::plot(ref_objects_x, "r.");
+  plt::plot(meas_objects_x, "g.");
+  plt::show();
+
+  plt::figure_size(1200, 780);
+  plt::xlabel("Y [m]");
+  plt::ylabel("Index [-]");
+  plt::plot(objects_y, "b+");
+  plt::plot(ref_objects_y, "r.");
+  plt::plot(meas_objects_y, "g.");
+  plt::show();
+
+  plt::figure_size(1200, 780);
+  plt::xlabel("Objects Number [-]");
+  plt::ylabel("Index [-]");
+  plt::plot(objects_number, "b.");
   plt::show();
 
   return 0;

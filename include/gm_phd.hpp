@@ -307,6 +307,6 @@ namespace mot {
       std::vector<Object> objects_;
       std::vector<Hypothesis> hypothesis_;
   };
-};  //  namespace eot
+};  //  namespace mot
 
 #endif  //  GM_PHD_INCLUDE_GM_PHD_HPP_
