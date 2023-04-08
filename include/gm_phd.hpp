@@ -45,6 +45,15 @@ namespace mot {
         return objects_;
       }
 
+      double GetWeightsSum(void) const {
+        return std::accumulate(hypothesis_.begin(), hypothesis_.end(),
+          0.0,
+          [](double sum, const Hypothesis & hypothesis) {
+            return sum + hypothesis.weight;
+          }
+        );
+      }
+
     protected:
       struct Hypothesis {
         Hypothesis(void) = default;
@@ -111,8 +120,11 @@ namespace mot {
       }
 
       void Predict(void) {
-        predicted_hypothesis_.clear();
-        PredictBirths();
+        if (is_initialized_)
+          predicted_hypothesis_.clear();
+        else
+          is_initialized_ = true;
+        // PredictBirths();
         PredictExistingTargets();
       }
 
@@ -140,7 +152,7 @@ namespace mot {
       }
 
       void Update(const std::vector<Measurement> & measurements) {
-        UpdateExistedHypothesis();
+        //UpdateExistedHypothesis();
         MakeMeasurementUpdate(measurements);
       }
 
@@ -161,6 +173,8 @@ namespace mot {
       }
 
       void MakeMeasurementUpdate(const std::vector<Measurement> & measurements) {
+        hypothesis_.clear();
+
         for (const auto & measurement : measurements) {
           std::vector<Hypothesis> new_hypothesis;
           for (const auto & predicted_hypothesis : predicted_hypothesis_) {
@@ -173,16 +187,23 @@ namespace mot {
           // Correct weights
           const auto weights_sum = std::accumulate(new_hypothesis.begin(), new_hypothesis.end(),
             0.0,
-            [](double sum, const Hypothesis & curr) {
-              return sum + curr.weight;
+            [this](double sum, const Hypothesis & curr) {
+              return sum + curr.weight * (1.0 - calibrations_.pd);
             }
           );
           // Normalize weight
           for (auto & hypothesis : new_hypothesis)
-            hypothesis.weight /= (calibrations_.kappa + weights_sum);
+            hypothesis.weight *= ((1.0 - calibrations_.pd) / (calibrations_.kappa + weights_sum));
           // Add new hypothesis to vector
           hypothesis_.insert(hypothesis_.end(), new_hypothesis.begin(), new_hypothesis.end());
         }
+        // Add prediced previously
+        std::transform(predicted_hypothesis_.begin(), predicted_hypothesis_.end(),
+          std::back_inserter(hypothesis_),
+          [](const PredictedHypothesis & predicted_hypothesis) {
+            return predicted_hypothesis.hypothesis;
+          }
+        );
       }
 
       void Prune(void) {
@@ -265,7 +286,7 @@ namespace mot {
       void ExtractObjects(void) {
         objects_.clear();
         for (const auto & hypothesis : hypothesis_) {
-          if (hypothesis.weight > 0.05) {
+          if (hypothesis.weight > 0.5) {
             Object object;
             object.value = hypothesis.state;
             object.covariance = hypothesis.covariance;
@@ -282,6 +303,7 @@ namespace mot {
       }
 
       double prev_timestamp_ = 0.0;
+      bool is_initialized_ = false;
       std::vector<Object> objects_;
       std::vector<Hypothesis> hypothesis_;
   };

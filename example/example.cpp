@@ -57,7 +57,7 @@ std::vector<Measurements> GenerateMeasurements(const std::vector<Measurements> &
     for (auto & measurement : measurement_scan) {
       measurement.value(0u) += measurement_noisse(e1);
       measurement.value(1u) += measurement_noisse(e1);
-      measurement.covariance = mot::GmPhdCvPose::MeasurementSizeMatrix::Identity();
+      measurement.covariance = 0.2 * mot::GmPhdCvPose::MeasurementSizeMatrix::Identity();
     }
   }
   return measurements;
@@ -68,7 +68,7 @@ int main () {
   //Create Filter
   mot::GmPhdCalibrations<4u, 2u> calibrations;
   
-  calibrations.process_noise_diagonal = {1.0, 1.0, 1.0, 1.0};
+  calibrations.process_noise_diagonal = {1.0, 1.0, 100.0, 100.0};
 
   calibrations.observation_matrix = Eigen::Matrix<double, 2u, 4u>::Zero();
   calibrations.observation_matrix(0u, 0u) = 1.0;
@@ -82,13 +82,43 @@ int main () {
   const auto trajectory = GenerateTrajectory();
   const auto measurements = GenerateMeasurements(trajectory);
 
+  // plt::figure_size(1200, 780);
+  // plt::xlabel("X [m]");
+  // plt::ylabel("Y [m]");
+
   // Run Filter
   std::vector<std::vector<mot::GmPhdCvPose::Object>> objects_all;
   for (auto index = 0u; index < measurements_number; index++) {
     gm_phd_filter.Run(static_cast<double>(index) * dt, measurements.at(index));
     const auto objects = gm_phd_filter.GetObjects();
     objects_all.push_back(objects);
-    std::cout << "Objects number: " << objects.size() << "\n";
+    std::cout << "Scan index: " << index << ", Objects number: " << objects.size() << ", Weights Sum: " << gm_phd_filter.GetWeightsSum() << "\n";
+
+    // std::vector<double> objects_x;
+    // std::vector<double> objects_y;
+    // for (const auto object : objects) {
+    //   objects_x.push_back(object.value(0u));
+    //   objects_y.push_back(object.value(1u));
+    // }
+    // plt::plot(objects_x, objects_y, "b+");
+
+    // std::vector<double> ref_objects_x;
+    // std::vector<double> ref_objects_y;
+    // for (const auto trajectories : trajectory.at(index)) {
+    //   ref_objects_x.push_back(trajectories.value(0u));
+    //   ref_objects_y.push_back(trajectories.value(1u));
+    // }
+    // plt::plot(ref_objects_x, ref_objects_y, "r.");
+
+    // std::vector<double> meas_objects_x;
+    // std::vector<double> meas_objects_y;
+    // for (const auto measurement : measurements.at(index)) {
+    //   meas_objects_x.push_back(measurement.value(0u));
+    //   meas_objects_y.push_back(measurement.value(1u));
+    // }
+    // plt::plot(meas_objects_x, meas_objects_y, "g.");
+
+    // plt::show();
   }
 
   //*********************************************************************//

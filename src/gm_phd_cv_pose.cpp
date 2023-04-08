@@ -10,12 +10,14 @@ namespace mot {
   std::uniform_real_distribution<double> velocity_dist(-1.0, 1.0);
 
   GmPhdCvPose::GmPhdCvPose(const GmPhdCalibrations<4u, 2u> & calibrations)
-    : GmPhd<4u, 2u>(calibrations) {}
+    : GmPhd<4u, 2u>(calibrations) {
+    PredictBirths();
+  }
 
   GmPhdCvPose::Hypothesis GmPhdCvPose::PredictHypothesis(const Hypothesis & hypothesis) {
     static Hypothesis predicted_hypothesis;
 
-    predicted_hypothesis.weight = calibrations_.pd * hypothesis.weight;
+    predicted_hypothesis.weight = calibrations_.ps * hypothesis.weight;
     predicted_hypothesis.state = transition_matrix_ * hypothesis.state;
     predicted_hypothesis.covariance = transition_matrix_ * hypothesis.covariance * transition_matrix_.transpose()
       + time_delta * process_noise_covariance_matrix_;
@@ -45,17 +47,18 @@ namespace mot {
   }
 
   void GmPhdCvPose::PredictBirths(void) {
-    for (auto index = 0; index < 10000u; index++) {
+    constexpr auto birth_objects_number = 100u;
+    for (auto index = 0; index < birth_objects_number; index++) {
       Hypothesis birth_hypothesis;
 
-      birth_hypothesis.weight = 1.0;
+      birth_hypothesis.weight = 2.0 / static_cast<double>(birth_objects_number);
 
       birth_hypothesis.state(0u) = pose_dist(e);
       birth_hypothesis.state(1u) = pose_dist(e);
       birth_hypothesis.state(2u) = velocity_dist(e);
       birth_hypothesis.state(3u) = velocity_dist(e);
 
-      birth_hypothesis.covariance = 0.01 * StateSizeMatrix::Identity();
+      birth_hypothesis.covariance = 1.0 * StateSizeMatrix::Identity();
 
       const auto predicted_measurement = calibrations_.observation_matrix * birth_hypothesis.state;
       const auto innovation_covariance = calibrations_.measurement_covariance + calibrations_.observation_matrix * birth_hypothesis.covariance * calibrations_.observation_matrix.transpose();
