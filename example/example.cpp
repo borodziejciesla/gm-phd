@@ -85,11 +85,13 @@ int main () {
   // Run Filter
   std::vector<std::vector<mot::GmPhdCvPose::Object>> objects_all;
   std::vector<int> objects_number;
+  std::vector<double> weights_sum;
   for (auto index = 0u; index < measurements_number; index++) {
     gm_phd_filter.Run(static_cast<double>(index) * dt, measurements.at(index));
     const auto objects = gm_phd_filter.GetObjects();
     objects_all.push_back(objects);
     objects_number.push_back(objects.size());
+    weights_sum.push_back(gm_phd_filter.GetWeightsSum());
     std::cout << "Scan index: " << index << ", Objects number: " << objects.size() << ", Weights Sum: " << gm_phd_filter.GetWeightsSum() << "\n";
   }
 
@@ -152,6 +154,12 @@ int main () {
   plt::xlabel("Objects Number [-]");
   plt::ylabel("Index [-]");
   plt::plot(objects_number, "b.");
+  plt::show();
+
+  plt::figure_size(1200, 780);
+  plt::xlabel("Weights Sum [-]");
+  plt::ylabel("Index [-]");
+  plt::plot(weights_sum, "b.");
   plt::show();
 
   return 0;
