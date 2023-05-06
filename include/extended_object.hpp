@@ -13,7 +13,7 @@ namespace mot {
   }
 
   template <size_t kinematic_state_size>
-  struct ValueWithCovariance {
+  struct ExtendedObject {
     ValueWithCovariance<kinematic_state_size> kinematic_state;
     ExtentState extent_state;
   };

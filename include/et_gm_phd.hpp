@@ -17,13 +17,13 @@ namespace mot {
   template <size_t state_size, size_t measurement_size>
   class EtGmPhd {
     public:
-    using StateSizeVector = Eigen::Vector<double, state_size>;
+      using StateSizeVector = Eigen::Vector<double, state_size>;
       using StateSizeMatrix = Eigen::Matrix<double, state_size, state_size>;
       using MeasurementSizeVector = Eigen::Vector<double, measurement_size>;
       using MeasurementSizeMatrix = Eigen::Matrix<double, measurement_size, measurement_size>;
 
       using Measurement = ValueWithCovariance<measurement_size>;
-      using Object = ExtentState<state_size>;
+      using Object = ExtendedObject<state_size>;
 
     public:
       EtGmPhd() {}
@@ -35,7 +35,15 @@ namespace mot {
       }
 
       void Run(const double timestamp, const std::vector<Measurement> & measurements) {
-       //
+        SetTimestamps(timestamp);
+        // Make partitioning - create object input hypothesis
+        MakeDistancePartitioning(measurements);
+        // Run Filter
+        Predict();
+        Update(measurements);
+        // Post Processing
+        //Prune();
+        //ExtractObjects();
       }
 
       double GetWeightsSum(void) const {
@@ -53,10 +61,11 @@ namespace mot {
         Hypothesis(const Hypothesis&) = default;
         Hypothesis(Hypothesis&&) = default;
         Hypothesis & operator=(const Hypothesis&) = default;
-        Hypothesis(const double w, const StateSizeVector s, const StateSizeMatrix c)
+        Hypothesis(const double w, const StateSizeVector s, const StateSizeMatrix c, const ExtentState e)
           : weight{w}
           , state{s}
-          , covariance{c} {}
+          , covariance{c}
+          , extent_state{e} {}
 
         bool operator==(const Hypothesis & arg) {
           return (weight == arg.weight)
@@ -67,11 +76,98 @@ namespace mot {
         double weight = 0.0;
         StateSizeVector state = StateSizeVector::Zero();
         StateSizeMatrix covariance = StateSizeMatrix::Zero();
+        ExtentState extent_state = ExtentState();
       };
 
-      std::vector<Object> objects_;
+      struct InputHypothesis {
+        Hypothesis(void) = default;
+        Hypothesis(const Hypothesis&) = default;
+        Hypothesis(Hypothesis&&) = default;
+        Hypothesis & operator=(const Hypothesis&) = default;
+        Hypothesis(const double w, const StateSizeVector s, const StateSizeMatrix c, const ExtentState e)
+          : weight{w}
+          , state{s}
+          , covariance{c} {}
+
+        bool operator==(const Hypothesis & arg) {
+          return (weight == arg.weight)
+            && (state == arg.state)
+            && (covariance == arg.covariance);
+        }
+
+        void AddDetectionIndex(const uint32_t detection_index) {
+          associated_measurements_indices.push_back(detection_index);
+        }
+
+        double weight = 0.0;
+        StateSizeVector state = StateSizeVector::Zero();
+        StateSizeMatrix covariance = StateSizeMatrix::Zero();
+        std::vector<size_t> associated_measurements_indices;
+      };
+
+      virtual Hypothesis PredictHypothesis(const Hypothesis & object) = 0;
+      virtual void PrepareTransitionMatrix(void) = 0;
+      virtual void PrepareProcessNoiseMatrix(void) = 0;
+      virtual void PredictBirths(void) = 0;
+
+      double time_delta = 0.0;
+      StateSizeMatrix transition_matrix_ = StateSizeMatrix::Zero();
+      StateSizeMatrix process_noise_covariance_matrix_ = StateSizeMatrix::Zero();
 
     private:
+      void SetTimestamps(const double timestamp) {
+        if (prev_timestamp_ != 0.0)
+          time_delta = timestamp - prev_timestamp_;
+        prev_timestamp_ = timestamp;
+      }
+
+      void Predict(void) {
+        if (is_initialized_)
+          predicted_hypothesis_.clear();
+        else
+          is_initialized_ = true;
+        // PredictBirths();
+        PredictExistingTargets();
+      }
+
+      void PredictExistingTargets(void) {
+        // Prepare for prediction 
+        PrepareTransitionMatrix();
+        PrepareProcessNoiseMatrix();
+        // Predict
+        std::transform(hypothesis_.begin(), hypothesis_.end(),
+          std::back_inserter(predicted_hypothesis_),
+          [this](const Hypothesis & hypothesis) {
+            const auto predicted_state = PredictHypothesis(hypothesis);
+
+            const auto predicted_measurement = calibrations_.observation_matrix * hypothesis.state;
+            const auto innovation_covariance = calibrations_.measurement_covariance
+              + calibrations_.observation_matrix * hypothesis.covariance * calibrations_.observation_matrix.transpose();
+            const auto kalman_gain = hypothesis.covariance * calibrations_.observation_matrix.transpose()
+              * innovation_covariance.inverse();
+            const auto predicted_covariance = (StateSizeMatrix::Identity() - kalman_gain * calibrations_.observation_matrix)
+              * hypothesis.covariance;
+
+            // Predict shape
+
+            return PredictedHypothesis(predicted_state, predicted_measurement, innovation_covariance, kalman_gain, predicted_covariance);
+          }
+        );
+      }
+
+      void UpdateMeasurements(const std::vector<Measurement> & measurement) {
+        UpdateExistingHypothesis();
+      }
+
+      void UpdateExistingHypothesis(void) {}
+
+      void MakeMeasurementUpdate(const std::vector<Measurement> & measurement) {
+        for (const auto & hypothesis : hypothesis_) {
+          //
+        }
+      }
+
+
       void CalculateDistances(const std::vector<Measurement> & measurements) {
         // Clear matrix
         for (auto & row : distance_matrix_)
@@ -93,6 +189,12 @@ namespace mot {
         }
       }
 
+      void PrepareInputHypothesis(const std::vector<Measurement> & measurements) {
+        input_hypothesis_.reshape(cell_id_);
+        for (auto detection_index = 0u; detection_index < cell_numbers_.size(); detection_index++)
+          input_hypothesis_.at(cell_numbers_.at(detection_index)) = detection_index;
+      }
+
       void MakeDistancePartitioning(const std::vector<Measurement> & measurements) {
         // Prepare distance matrix
         CalculateDistances(measurements);
@@ -102,12 +204,12 @@ namespace mot {
         std::fill(cell_numbers_.begin(), cell_numbers_.end(), 0u);
         
         // Main partitioning loop
-        uint32_t cell_id = 0u;
+        cell_id_ = 0u;
         for (auto i = 0; i < measurements.size(); i++) {
           if (cell_numbers_.at(i) == 0u) {
             cell_numbers_.at(i) = cell_id;
-            FindNeihgbours(i, measurements, cell_id);
-            cell_id++;
+            FindNeihgbours(i, measurements, cell_id_);
+            cell_id_++;
           }
         }
       }
@@ -133,10 +235,23 @@ namespace mot {
         return distance_raw(0u);
       }
 
+      static double NormPdf(const MeasurementSizeVector & z, const MeasurementSizeVector & nu, const MeasurementSizeMatrix & cov) {
+        const auto diff = z - nu;
+        const auto c = 1.0 / (std::sqrt(std::pow(std::numbers::pi, measurement_size) * cov.determinant()));
+        const auto e = std::exp(-0.5 * diff.transpose() * cov.inverse() * diff);
+        return c * e;
+      }
+
       using DistanceMatrix = std::vector<std::vector<float>>;
 
+      double prev_timestamp_ = 0.0;
+      bool is_initialized_ = false;
+      int32_t cell_id_ = 0u;
       DistanceMatrix distance_matrix_;
       std::vector<uint32_t> cell_numbers_;
+      std::vector<Object> objects_;
+      std::vector<InputHypothesis> input_hypothesis_;
+      std::vector<Hypothesis> hypothesis_;
   };
 } //  namespace mot
 
