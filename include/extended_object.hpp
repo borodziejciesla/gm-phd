@@ -10,7 +10,7 @@ namespace mot {
     float orientation;
 
     Eigen::Matrix<double, 3u, 3u> covariance = Eigen::Matrix<double, 3u, 3u>::Zero();
-  }
+  };
 
   template <size_t kinematic_state_size>
   struct ExtendedObject {

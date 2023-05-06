@@ -26,7 +26,8 @@ namespace mot {
       using Object = ExtendedObject<state_size>;
 
     public:
-      EtGmPhd() {}
+      EtGmPhd(const GmPhdCalibrations<4u, 2u> & calibrations)
+        : calibrations_{calibrations} {}
 
       ~EtGmPhd(void) = default;
 
@@ -80,11 +81,11 @@ namespace mot {
       };
 
       struct InputHypothesis {
-        Hypothesis(void) = default;
-        Hypothesis(const Hypothesis&) = default;
-        Hypothesis(Hypothesis&&) = default;
-        Hypothesis & operator=(const Hypothesis&) = default;
-        Hypothesis(const double w, const StateSizeVector s, const StateSizeMatrix c, const ExtentState e)
+        InputHypothesis(void) = default;
+        InputHypothesis(const InputHypothesis&) = default;
+        InputHypothesis(InputHypothesis&&) = default;
+        InputHypothesis & operator=(const InputHypothesis&) = default;
+        InputHypothesis(const double w, const StateSizeVector s, const StateSizeMatrix c, const ExtentState e)
           : weight{w}
           , state{s}
           , covariance{c} {}
@@ -111,6 +112,8 @@ namespace mot {
       virtual void PredictBirths(void) = 0;
 
       double time_delta = 0.0;
+      GmPhdCalibrations<state_size, measurement_size> calibrations_;
+      std::vector<Hypothesis> predicted_hypothesis_;
       StateSizeMatrix transition_matrix_ = StateSizeMatrix::Zero();
       StateSizeMatrix process_noise_covariance_matrix_ = StateSizeMatrix::Zero();
 
@@ -182,7 +185,7 @@ namespace mot {
         // Calculate distances
         for (auto row_index = 0u; row_index < measurements.size(); row_index++) {
           for (auto col_index = row_index; col_index < measurements.size(); col_index++) {
-            const auto distance = CalculateMahalanobisDistance(measurements.at(row_indes), measurements.at(col_index));
+            const auto distance = CalculateMahalanobisDistance(measurements.at(row_index), measurements.at(col_index));
             distance_matrix_.at(row_index).at(col_index) = distance;
             distance_matrix_.at(col_index).at(row_index) = distance;
           }
@@ -200,14 +203,14 @@ namespace mot {
         CalculateDistances(measurements);
         
         // Prepare cells number
-        cell_numbers.resize(measurements.size());
+        cell_numbers_.resize(measurements.size());
         std::fill(cell_numbers_.begin(), cell_numbers_.end(), 0u);
         
         // Main partitioning loop
         cell_id_ = 0u;
         for (auto i = 0; i < measurements.size(); i++) {
           if (cell_numbers_.at(i) == 0u) {
-            cell_numbers_.at(i) = cell_id;
+            cell_numbers_.at(i) = cell_id_;
             FindNeihgbours(i, measurements, cell_id_);
             cell_id_++;
           }
