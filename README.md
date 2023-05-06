@@ -1,10 +1,20 @@
+[![CodeFactor](https://www.codefactor.io/repository/github/borodziejciesla/gm-phd/badge)](https://www.codefactor.io/repository/github/borodziejciesla/gm-phd)
+
 # gm-phd
 C++ implementation of GM-PHD filter.
 
-Based on: "Probability Hypothesis Density Filter Implementation and Application"
-Zachary Prihoda, Arec Jamgochian, Ben Moore, Bernard Lange
+## Point target
+Based on: 
+* "Probability Hypothesis Density Filter Implementation and Application", Zachary Prihoda, Arec Jamgochian, Ben Moore, Bernard Lange
 
-[![CodeFactor](https://www.codefactor.io/repository/github/borodziejciesla/gm-phd/badge)](https://www.codefactor.io/repository/github/borodziejciesla/gm-phd)
+## Extended target
+Based on:
+* "A GAussian Mixture PHD filter for Extended Target Tracking", Karl Granstrom, Christian Lundquist, Umut Orguner
+* "Extended Target Tracking Using a Gaussian Mixture PHD Filter", Karl Granstrom, Christian Lundquist, Umut Orguner
+* "Gaussian Mixture PHD filter for Multiple Maneuvering Extended Targets Tracking", Wenling Li, Yingmin Jia, Junping Du and Fashan Yu
+
+
+
 
 
 ## Some trajectory examples
