@@ -173,12 +173,58 @@ namespace mot {
         );
       }
 
-      void MakeMeasurementUpdate(const std::vector<Measurement> & measurement) {
-        for (const auto & hypothesis : hypothesis_) {
-          //
+      void MakeMeasurementUpdate(const std::vector<Measurement> & measurements) {
+        for (const auto & input_hypothesis : input_hypothesis_) {
+          for (const auto & predicted_hypothesis : predicted_hypothesis_) {
+            // Calculate Weight
+            const auto wp = CalculateOmegaP(input_hypothesis);
+            const auto gamma = CalculateGamma(input_hypothesis);
+            const auto dw = CalculateDw();
+            const auto phi_w = CalculateInputHypothesisPhi(input_hypothesis, measurements);
+
+            const auto new_weight = wp * (gamma * calibrations_.pd / dw) * phi_w * (predicted_hypothesis.weight / calibrations.ps);
+
+            // Calculate kinematic state and covariance
+          }
         }
       }
 
+      double CalculateGamma(const InputHypothesis & input_hypothesis) const {
+        return ste::exp(-gamma_) * std::pow(gamma_, input_hypothesis.associated_measurements_indices.size());
+      }
+
+      double CalculateMeasurementPhi(const Measurement & measurement, const Hypothesis & hypothesis) const {
+        return NormPdf(measurement.value,
+          h_ * hypothesis.state,
+          measurement.covariance + h_ * hypothesis.covariance * h_.transpose);
+      }
+
+      double CalculateInputHypothesisPhi(const InputHypothesis & input_hypothesis, const std::vector<Measurement> & measurements) const {
+        double phi = 1.0;
+
+        for (const auto det_index : input_hypothesis.associated_measurements_indices)
+          phi *= (CalculateMeasurementPhi(input_hypothesis) / (measurements.at(det_index)));
+
+        return phi;
+      }
+
+      double CalculateOmegaP(const InputHypothesis & input_hypothesis) const {
+        return 1.0;
+      }
+
+      double CalculateDw(void) const {
+        auto dw = std::accumulate(predicted_hypothesis_.begin(), predicted_hypothesis_.end(),
+          0.0,
+          [this](double sum, const Hypothesis & hypothesis) {
+            return sum + 1.0;
+          }
+        );
+
+        if (input_hypothesis.associated_measurements_indices.size() == 1u)
+          dw += 1.0;
+
+        return 1.0;
+      }
 
       void CalculateDistances(const std::vector<Measurement> & measurements) {
         // Clear matrix
@@ -266,6 +312,8 @@ namespace mot {
       std::vector<Hypothesis> hypothesis_;
 
       const double gamma_ = 10.0;
+      const double lambda = 1.0;
+      const double ck = 1.0;
   };
 } //  namespace mot
 
