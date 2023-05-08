@@ -141,25 +141,21 @@ namespace mot {
         std::transform(hypothesis_.begin(), hypothesis_.end(),
           std::back_inserter(predicted_hypothesis_),
           [this](const Hypothesis & hypothesis) {
+            // Predict kinematics
             const auto predicted_state = PredictHypothesis(hypothesis);
-
-            const auto predicted_measurement = calibrations_.observation_matrix * hypothesis.state;
-            const auto innovation_covariance = calibrations_.measurement_covariance
-              + calibrations_.observation_matrix * hypothesis.covariance * calibrations_.observation_matrix.transpose();
-            const auto kalman_gain = hypothesis.covariance * calibrations_.observation_matrix.transpose()
-              * innovation_covariance.inverse();
-            const auto predicted_covariance = (StateSizeMatrix::Identity() - kalman_gain * calibrations_.observation_matrix)
-              * hypothesis.covariance;
+            // Predict weight
+            predicted_state.weight *= calibrations_.ps;
 
             // Predict shape
 
-            return PredictedHypothesis(predicted_state, predicted_measurement, innovation_covariance, kalman_gain, predicted_covariance);
+            return Hypothesis(predicted_state);
           }
         );
       }
 
       void UpdateMeasurements(const std::vector<Measurement> & measurement) {
         UpdateExistingHypothesis();
+        MakeMeasurementUpdate(measurement);
       }
 
       void UpdateExistingHypothesis(void) {}
@@ -255,6 +251,8 @@ namespace mot {
       std::vector<Object> objects_;
       std::vector<InputHypothesis> input_hypothesis_;
       std::vector<Hypothesis> hypothesis_;
+
+      const double gamma_ = 10.0;
   };
 } //  namespace mot
 
