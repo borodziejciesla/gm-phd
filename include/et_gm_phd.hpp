@@ -154,11 +154,24 @@ namespace mot {
       }
 
       void UpdateMeasurements(const std::vector<Measurement> & measurement) {
+        // Clear hypothesis list
+        hypothesis_.clear();
+        // Create new hypothesis
         UpdateExistingHypothesis();
         MakeMeasurementUpdate(measurement);
       }
 
-      void UpdateExistingHypothesis(void) {}
+      void UpdateExistingHypothesis(void) {
+        std::transform(predicted_hypothesis_.begin(), predicted_hypothesis_.end(),
+          std::back_inserter(hypothesis_),
+          [this](const Hypothesis & hypothesis) {
+            return Hypothesis((1.0 - (1.0 - std::exp(-gamma_))) * hypothesis.weight,
+              hypothesis.state,
+              hypothesis.covariance,
+              hypothesis.extent_state);
+          }
+        );
+      }
 
       void MakeMeasurementUpdate(const std::vector<Measurement> & measurement) {
         for (const auto & hypothesis : hypothesis_) {
