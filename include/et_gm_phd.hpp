@@ -182,7 +182,7 @@ namespace mot {
             const auto dw = CalculateDw();
             const auto phi_w = CalculateInputHypothesisPhi(input_hypothesis, measurements);
 
-            const auto new_weight = wp * (gamma * calibrations_.pd / dw) * phi_w * (predicted_hypothesis.weight / calibrations.ps);
+            const auto new_weight = wp * (gamma * calibrations_.pd / dw) * phi_w * (predicted_hypothesis.weight / calibrations_.ps);
 
             // Calculate kinematic state and covariance
           }
@@ -190,13 +190,13 @@ namespace mot {
       }
 
       double CalculateGamma(const InputHypothesis & input_hypothesis) const {
-        return ste::exp(-gamma_) * std::pow(gamma_, input_hypothesis.associated_measurements_indices.size());
+        return std::exp(-gamma_) * std::pow(gamma_, input_hypothesis.associated_measurements_indices.size());
       }
 
       double CalculateMeasurementPhi(const Measurement & measurement, const Hypothesis & hypothesis) const {
         return NormPdf(measurement.value,
-          h_ * hypothesis.state,
-          measurement.covariance + h_ * hypothesis.covariance * h_.transpose);
+          calibrations_.observation_matrix * hypothesis.state,
+          measurement.covariance + calibrations_.observation_matrix * hypothesis.covariance * calibrations_.observation_matrix.transpose);
       }
 
       double CalculateInputHypothesisPhi(const InputHypothesis & input_hypothesis, const std::vector<Measurement> & measurements) const {
@@ -209,21 +209,23 @@ namespace mot {
       }
 
       double CalculateOmegaP(const InputHypothesis & input_hypothesis) const {
-        return 1.0;
+        return 1.0; // Should be implemented in case of multiple partitioning
       }
 
-      double CalculateDw(void) const {
+      double CalculateDw(const std::vector<Measurement> & measurements) const {
         auto dw = std::accumulate(predicted_hypothesis_.begin(), predicted_hypothesis_.end(),
           0.0,
-          [this](double sum, const Hypothesis & hypothesis) {
-            return sum + 1.0;
+          [measurements, this](double sum, const Hypothesis & hypothesis) {
+            const auto gamma = CalculateGamma(hypothesis);
+            const auto phi_w = CalculateInputHypothesisPhi(hypothesis, measurements);
+            return sum + (gamma * calibrations_.pd * phi_w * hypothesis.weight);
           }
         );
 
-        if (input_hypothesis.associated_measurements_indices.size() == 1u)
+        if (predicted_hypothesis_.size() == 1u)
           dw += 1.0;
 
-        return 1.0;
+        return dw;
       }
 
       void CalculateDistances(const std::vector<Measurement> & measurements) {
