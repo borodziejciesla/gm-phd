@@ -39,6 +39,7 @@ namespace mot {
         SetTimestamps(timestamp);
         // Make partitioning - create object input hypothesis
         MakeDistancePartitioning(measurements);
+        PrepareInputHypothesis(measurements);
         // Run Filter
         Predict();
         Update(measurements);
@@ -179,14 +180,70 @@ namespace mot {
             // Calculate Weight
             const auto wp = CalculateOmegaP(input_hypothesis);
             const auto gamma = CalculateGamma(input_hypothesis);
-            const auto dw = CalculateDw();
+            const auto dw = CalculateDw(measurements);
             const auto phi_w = CalculateInputHypothesisPhi(input_hypothesis, measurements);
 
             const auto new_weight = wp * (gamma * calibrations_.pd / dw) * phi_w * (predicted_hypothesis.weight / calibrations_.ps);
 
             // Calculate kinematic state and covariance
+            const auto [state, covariance] = UpdateKinematic(input_hypothesis, predicted_hypothesis, measurements);
+
+            // Add element
+            Hypothesis h;
+            h.weight = new_weight;
+            h.state = state;
+            h.covariance = covariance;
+
+            hypothesis_.push_back(h);
           }
         }
+      }
+
+      std::pair<StateSizeVector, StateSizeMatrix> UpdateKinematic(const InputHypothesis & input_hypothesis, const Hypothesis & predicted_hypothesis, const std::vector<Measurement> & measurements) {
+        const auto kalman_gain = CalculateKalmaGain(input_hypothesis, predicted_hypothesis, measurements);
+        const auto [state, covariance] = CalculateUpdatedKinematic(kalman_gain, input_hypothesis, predicted_hypothesis, measurements);
+
+        return std::make_pair(state, covariance);
+      }
+
+      Eigen::MatrixXd CalculateKalmaGain(const InputHypothesis & input_hypothesis, const Hypothesis & predicted_hypothesis, const std::vector<Measurement> & measurements) const {
+        const auto detections_number = input_hypothesis.associated_measurements_indices.size();
+        
+        Eigen::MatrixXd innovation_matrix(detections_number * measurement_size, detections_number * measurement_size);
+        Eigen::MatrixXd observation_matrix(state_size, detections_number * measurement_size);
+        
+        for (auto row_index = 0u; row_index < detections_number; row_index++) {
+          observation_matrix.block(0u, row_index * measurement_size, state_size, measurement_size) = calibrations_.observation_matrix.transpose();
+          for (auto col_index = 0u; col_index < detections_number; col_index++) {
+            const auto hph = calibrations_.observation_matrix * predicted_hypothesis.covariance * calibrations_.observation_matrix.transpose();
+            if (row_index != col_index) {
+              innovation_matrix.block(row_index * measurement_size, col_index * measurement_size, measurement_size, measurement_size) = hph;
+            } else {
+              innovation_matrix.block(row_index * measurement_size, col_index * measurement_size, measurement_size, measurement_size)
+                = hph + measurements.at(row_index).covariance();
+            }
+          }
+        }
+        const auto innovation_matrix_inversed = innovation_matrix.inverse();
+        
+        return predicted_hypothesis.covariance * observation_matrix * innovation_matrix_inversed;
+      }
+
+      std::pair<StateSizeVector, StateSizeMatrix> CalculateUpdatedKinematic(const Eigen::MatrixXd & kalman_gain, const InputHypothesis & input_hypothesis, const Hypothesis & predicted_hypothesis, const std::vector<Measurement> & measurements) {
+        const auto detections_number = input_hypothesis.associated_measurements_indices.size();
+
+        Eigen::MatrixXd observation_matrix(detections_number * measurement_size, state_size);
+        Eigen::MatrixXd observation(detections_number * measurement_size, 1u);
+
+        for (auto index = detections_number; index < detections_number; index++) {
+          observation_matrix.block(index * measurement_size, 0u, measurement_size, state_size) = calibrations_.observation_matrix;
+          observation.block(index * measurement_size, 0u, measurement_size, 1u) = measurements.at(input_hypothesis.associated_measurements_indices.at(index)).value;
+        }
+
+        const auto state = predicted_hypothesis.state + kalman_gain * (observation - observation_matrix * predicted_hypothesis.state);
+        const auto covariance = (StateSizeMatrix::Identity - kalman_gain * observation_matrix) * predicted_hypothesis.covariance;
+
+        return std::make_pair(state, covariance);
       }
 
       double CalculateGamma(const InputHypothesis & input_hypothesis) const {
