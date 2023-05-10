@@ -44,8 +44,8 @@ namespace mot {
         Predict();
         UpdateMeasurements(measurements);
         // Post Processing
-        //Prune();
-        //ExtractObjects();
+        Prune();
+        ExtractObjects();
       }
 
       double GetWeightsSum(void) const {
@@ -281,6 +281,95 @@ namespace mot {
         if (predicted_hypothesis_.size() == 1u)
           dw += 1.0;
         return dw;
+      }
+
+      void Prune(void) {
+        // Select elements with weigths over turncation threshold
+        std::vector<Hypothesis> pruned_hypothesis;
+        std::copy_if(hypothesis_.begin(), hypothesis_.end(),
+          std::back_inserter(pruned_hypothesis),
+          [this](const Hypothesis & hypothesis) {
+            return hypothesis.weight >= calibrations_.truncation_threshold;
+          }
+        );
+        std::vector<std::pair<Hypothesis, bool>> pruned_hypothesis_marked;
+        std::transform(pruned_hypothesis.begin(), pruned_hypothesis.end(),
+          std::back_inserter(pruned_hypothesis_marked),
+          [](const Hypothesis & hypothesis) {
+            return std::make_pair(hypothesis, false);
+          }        
+        );
+
+        // Merge hypothesis
+        std::vector<Hypothesis> merged_hypothesis;
+        auto non_marked_hypothesis_counter = [](size_t sum, const std::pair<Hypothesis, bool> & markable_hypothesis) {
+          return sum + (markable_hypothesis.second ? 0u : 1u);
+        };
+        auto non_merged_hypothesis_number = std::accumulate(pruned_hypothesis_marked.begin(), pruned_hypothesis_marked.end(), 0u, non_marked_hypothesis_counter);
+
+        while (non_merged_hypothesis_number > 0u) {
+          auto I = pruned_hypothesis_marked | std::views::filter([](const std::pair<Hypothesis, bool> & hypothesis_mark) { return !hypothesis_mark.second; });
+
+          // Select maximum weight element
+          const auto maximum_weight_hypothesis = *std::max_element(I.begin(), I.end(),
+            [](const std::pair<Hypothesis, bool> & a, const std::pair<Hypothesis, bool> & b) {
+              return a.first.weight < b.first.weight;
+            }
+          );
+
+          // Select hypothesis in merging threshold
+          auto L = pruned_hypothesis_marked | std::views::filter(
+            [maximum_weight_hypothesis,this](const std::pair<Hypothesis, bool> & markable_hypothesis) {
+              const auto diff = markable_hypothesis.first.state - maximum_weight_hypothesis.first.state;
+              const auto distance_matrix = diff.transpose() * markable_hypothesis.first.covariance.inverse() * diff;
+              return (distance_matrix(0) < calibrations_.merging_threshold) && !markable_hypothesis.second;
+            }
+          );
+
+          // Calculate new merged element
+          const auto merged_weight = std::accumulate(L.begin(), L.end(),
+            0.0,
+            [](double sum, const std::pair<Hypothesis, bool> & hypothesis) {
+              return sum + hypothesis.first.weight;
+            }
+          );
+          
+          StateSizeVector merged_state = StateSizeVector::Zero();
+          for (const auto l : L)
+            merged_state += (l.first.weight * l.first.state) / merged_weight;
+
+          StateSizeMatrix merged_covariance = StateSizeMatrix::Zero();
+          for (const auto l : L) {
+            const auto diff = merged_state - l.first.state;
+            merged_covariance += (l.first.covariance + diff * diff.transpose()) / merged_weight;
+          }
+
+          merged_hypothesis.push_back(Hypothesis(merged_weight, merged_state, merged_covariance, ExtentState()));
+          // Remove L from I
+          std::transform(L.begin(), L.end(),
+           L.begin(),
+            [](std::pair<Hypothesis, bool> & markable_hypothesis) {
+              markable_hypothesis.second = true;
+              return markable_hypothesis;
+            }
+          );
+          //
+          non_merged_hypothesis_number = std::accumulate(pruned_hypothesis_marked.begin(), pruned_hypothesis_marked.end(), 0u, non_marked_hypothesis_counter);
+        }
+        // Set final hypothesis
+        hypothesis_ = merged_hypothesis;
+      }
+
+      void ExtractObjects(void) {
+        objects_.clear();
+        for (const auto & hypothesis : hypothesis_) {
+          if (hypothesis.weight > 0.5) {
+            Object object;
+            object.kinematic_state.value = hypothesis.state;
+            object.kinematic_state.covariance = hypothesis.covariance;
+            objects_.push_back(object);
+          }
+        }
       }
 
       void CalculateDistances(const std::vector<Measurement> & measurements) {
