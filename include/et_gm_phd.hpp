@@ -42,7 +42,7 @@ namespace mot {
         PrepareInputHypothesis(measurements);
         // Run Filter
         Predict();
-        Update(measurements);
+        UpdateMeasurements(measurements);
         // Post Processing
         //Prune();
         //ExtractObjects();
@@ -143,7 +143,7 @@ namespace mot {
           std::back_inserter(predicted_hypothesis_),
           [this](const Hypothesis & hypothesis) {
             // Predict kinematics
-            const auto predicted_state = PredictHypothesis(hypothesis);
+            auto predicted_state = PredictHypothesis(hypothesis);
             // Predict weight
             predicted_state.weight *= calibrations_.ps;
 
@@ -180,8 +180,8 @@ namespace mot {
             // Calculate Weight
             const auto wp = CalculateOmegaP(input_hypothesis);
             const auto gamma = CalculateGamma(input_hypothesis);
-            const auto dw = CalculateDw(measurements);
-            const auto phi_w = CalculateInputHypothesisPhi(input_hypothesis, measurements);
+            const auto dw = CalculateDw(input_hypothesis, measurements);
+            const auto phi_w = CalculateInputHypothesisPhi(predicted_hypothesis, input_hypothesis, measurements);
 
             const auto new_weight = wp * (gamma * calibrations_.pd / dw) * phi_w * (predicted_hypothesis.weight / calibrations_.ps);
 
@@ -220,7 +220,7 @@ namespace mot {
               innovation_matrix.block(row_index * measurement_size, col_index * measurement_size, measurement_size, measurement_size) = hph;
             } else {
               innovation_matrix.block(row_index * measurement_size, col_index * measurement_size, measurement_size, measurement_size)
-                = hph + measurements.at(row_index).covariance();
+                = hph + measurements.at(row_index).covariance;
             }
           }
         }
@@ -241,7 +241,7 @@ namespace mot {
         }
 
         const auto state = predicted_hypothesis.state + kalman_gain * (observation - observation_matrix * predicted_hypothesis.state);
-        const auto covariance = (StateSizeMatrix::Identity - kalman_gain * observation_matrix) * predicted_hypothesis.covariance;
+        const auto covariance = (StateSizeMatrix::Identity() - kalman_gain * observation_matrix) * predicted_hypothesis.covariance;
 
         return std::make_pair(state, covariance);
       }
@@ -253,35 +253,33 @@ namespace mot {
       double CalculateMeasurementPhi(const Measurement & measurement, const Hypothesis & hypothesis) const {
         return NormPdf(measurement.value,
           calibrations_.observation_matrix * hypothesis.state,
-          measurement.covariance + calibrations_.observation_matrix * hypothesis.covariance * calibrations_.observation_matrix.transpose);
+          measurement.covariance + calibrations_.observation_matrix * hypothesis.covariance * calibrations_.observation_matrix.transpose());
       }
 
-      double CalculateInputHypothesisPhi(const InputHypothesis & input_hypothesis, const std::vector<Measurement> & measurements) const {
+      double CalculateInputHypothesisPhi(const Hypothesis & predicted_hypothesis, const InputHypothesis & input_hypothesis, const std::vector<Measurement> & measurements) const {
         double phi = 1.0;
-
         for (const auto det_index : input_hypothesis.associated_measurements_indices)
-          phi *= (CalculateMeasurementPhi(input_hypothesis) / (measurements.at(det_index)));
+          phi *= CalculateMeasurementPhi(measurements.at(det_index), predicted_hypothesis);
 
-        return phi;
+        return phi / (lambda_ * ck_);
       }
 
       double CalculateOmegaP(const InputHypothesis & input_hypothesis) const {
         return 1.0; // Should be implemented in case of multiple partitioning
       }
 
-      double CalculateDw(const std::vector<Measurement> & measurements) const {
+      double CalculateDw(const InputHypothesis & input_hypothesis, const std::vector<Measurement> & measurements) const {
         auto dw = std::accumulate(predicted_hypothesis_.begin(), predicted_hypothesis_.end(),
           0.0,
-          [measurements, this](double sum, const Hypothesis & hypothesis) {
-            const auto gamma = CalculateGamma(hypothesis);
-            const auto phi_w = CalculateInputHypothesisPhi(hypothesis, measurements);
+          [measurements, input_hypothesis, this](double sum, const Hypothesis & hypothesis) {
+            const auto gamma = CalculateGamma(input_hypothesis);
+            const auto phi_w = CalculateInputHypothesisPhi(hypothesis, input_hypothesis, measurements);
             return sum + (gamma * calibrations_.pd * phi_w * hypothesis.weight);
           }
         );
 
         if (predicted_hypothesis_.size() == 1u)
           dw += 1.0;
-
         return dw;
       }
 
@@ -294,7 +292,7 @@ namespace mot {
         // Allocate new matrix
         distance_matrix_ = DistanceMatrix(measurements.size());
         for (auto & row : distance_matrix_)
-          row = std::vector(measurements.size());
+          row.resize(measurements.size());
         
         // Calculate distances
         for (auto row_index = 0u; row_index < measurements.size(); row_index++) {
@@ -307,9 +305,9 @@ namespace mot {
       }
 
       void PrepareInputHypothesis(const std::vector<Measurement> & measurements) {
-        input_hypothesis_.reshape(cell_id_);
+        input_hypothesis_.resize(cell_id_);
         for (auto detection_index = 0u; detection_index < cell_numbers_.size(); detection_index++)
-          input_hypothesis_.at(cell_numbers_.at(detection_index)) = detection_index;
+          input_hypothesis_.at(cell_numbers_.at(detection_index)).associated_measurements_indices.push_back(detection_index);
       }
 
       void MakeDistancePartitioning(const std::vector<Measurement> & measurements) {
@@ -371,8 +369,8 @@ namespace mot {
       std::vector<Hypothesis> hypothesis_;
 
       const double gamma_ = 10.0;
-      const double lambda = 1.0;
-      const double ck = 1.0;
+      const double lambda_ = 1.0;
+      const double ck_ = 1.0;
   };
 } //  namespace mot
 

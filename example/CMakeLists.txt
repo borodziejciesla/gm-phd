@@ -9,7 +9,7 @@ else()
 endif()
 
 add_executable(${EXAMPLE_PROJECT_NAME}
-  example.cpp
+  example_et.cpp
 )
 
 include_directories(${EXAMPLE_PROJECT_NAME}
