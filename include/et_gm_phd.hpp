@@ -166,7 +166,7 @@ namespace mot {
         std::transform(predicted_hypothesis_.begin(), predicted_hypothesis_.end(),
           std::back_inserter(hypothesis_),
           [this](const Hypothesis & hypothesis) {
-            return Hypothesis((1.0 - (1.0 - std::exp(-gamma_))) * hypothesis.weight,
+            return Hypothesis((1.0 - (1.0 - std::exp(-gamma_)) * calibrations_.pd) * hypothesis.weight,
               hypothesis.state,
               hypothesis.covariance,
               hypothesis.extent_state);
@@ -395,6 +395,9 @@ namespace mot {
 
       void PrepareInputHypothesis(const std::vector<Measurement> & measurements) {
         input_hypothesis_.resize(cell_id_);
+        for (auto & ih : input_hypothesis_)
+          ih.associated_measurements_indices.clear();
+
         for (auto detection_index = 0u; detection_index < cell_numbers_.size(); detection_index++)
           input_hypothesis_.at(cell_numbers_.at(detection_index)).associated_measurements_indices.push_back(detection_index);
       }
@@ -421,7 +424,7 @@ namespace mot {
       void FindNeihgbours(const uint32_t i, const std::vector<Measurement> & measurements, const uint32_t cell_id) {
         for (auto j = 0u; j < measurements.size(); j++) {
           const auto is_different_index = (j != i);
-          const auto is_in_maximum_range = (distance_matrix_.at(i).at(j) <= 10.0);
+          const auto is_in_maximum_range = (distance_matrix_.at(i).at(j) <= 4.6052);
           const auto is_non_initialized = (cell_numbers_.at(j) == 0u);
 
           if (is_different_index && is_in_maximum_range && is_non_initialized) {
@@ -457,9 +460,9 @@ namespace mot {
       std::vector<InputHypothesis> input_hypothesis_;
       std::vector<Hypothesis> hypothesis_;
 
-      const double gamma_ = 10.0;
-      const double lambda_ = 1.0;
-      const double ck_ = 1.0;
+      const double gamma_ = 2.0;
+      const double lambda_ = 2.1;
+      const double ck_ = 1.0e-9;
   };
 } //  namespace mot
 
