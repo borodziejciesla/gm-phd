@@ -235,7 +235,7 @@ namespace mot {
         Eigen::MatrixXd observation_matrix(detections_number * measurement_size, state_size);
         Eigen::MatrixXd observation(detections_number * measurement_size, 1u);
 
-        for (auto index = detections_number; index < detections_number; index++) {
+        for (auto index = 0u; index < detections_number; index++) {
           observation_matrix.block(index * measurement_size, 0u, measurement_size, state_size) = calibrations_.observation_matrix;
           observation.block(index * measurement_size, 0u, measurement_size, 1u) = measurements.at(input_hypothesis.associated_measurements_indices.at(index)).value;
         }
@@ -460,8 +460,8 @@ namespace mot {
       std::vector<InputHypothesis> input_hypothesis_;
       std::vector<Hypothesis> hypothesis_;
 
-      const double gamma_ = 2.0;
-      const double lambda_ = 2.1;
+      const double gamma_ = 1.0;
+      const double lambda_ = 0.1;
       const double ck_ = 1.0e-9;
   };
 } //  namespace mot
