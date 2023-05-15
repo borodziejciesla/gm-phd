@@ -6,6 +6,7 @@
 #include "matplotlibcpp.hpp"
 
 #include "et_gm_phd_cv_pose.hpp"
+#include "trajectory_generation.hpp"
 
 namespace plt = matplotlibcpp;
 

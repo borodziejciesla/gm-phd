@@ -10,6 +10,7 @@ endif()
 
 add_executable(${EXAMPLE_PROJECT_NAME}
   example_et.cpp
+  trajectory_generation.cpp
 )
 
 include_directories(${EXAMPLE_PROJECT_NAME}
