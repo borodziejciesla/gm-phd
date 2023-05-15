@@ -408,12 +408,12 @@ namespace mot {
         
         // Prepare cells number
         cell_numbers_.resize(measurements.size());
-        std::fill(cell_numbers_.begin(), cell_numbers_.end(), 0u);
+        std::fill(cell_numbers_.begin(), cell_numbers_.end(), -1u);
         
         // Main partitioning loop
         cell_id_ = 0u;
         for (auto i = 0; i < measurements.size(); i++) {
-          if (cell_numbers_.at(i) == 0u) {
+          if (cell_numbers_.at(i) == -1u) {
             cell_numbers_.at(i) = cell_id_;
             FindNeihgbours(i, measurements, cell_id_);
             cell_id_++;
@@ -424,8 +424,8 @@ namespace mot {
       void FindNeihgbours(const uint32_t i, const std::vector<Measurement> & measurements, const uint32_t cell_id) {
         for (auto j = 0u; j < measurements.size(); j++) {
           const auto is_different_index = (j != i);
-          const auto is_in_maximum_range = (distance_matrix_.at(i).at(j) <= 4.6052);
-          const auto is_non_initialized = (cell_numbers_.at(j) == 0u);
+          const auto is_in_maximum_range = (distance_matrix_.at(i).at(j) <= 100.0);
+          const auto is_non_initialized = (cell_numbers_.at(j) == -1u);
 
           if (is_different_index && is_in_maximum_range && is_non_initialized) {
             cell_numbers_.at(j) = cell_id;
@@ -455,7 +455,7 @@ namespace mot {
       bool is_initialized_ = false;
       int32_t cell_id_ = 0u;
       DistanceMatrix distance_matrix_;
-      std::vector<uint32_t> cell_numbers_;
+      std::vector<int32_t> cell_numbers_;
       std::vector<Object> objects_;
       std::vector<InputHypothesis> input_hypothesis_;
       std::vector<Hypothesis> hypothesis_;
