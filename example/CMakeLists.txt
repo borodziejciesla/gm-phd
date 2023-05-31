@@ -9,8 +9,8 @@ else()
 endif()
 
 add_executable(${EXAMPLE_PROJECT_NAME}
-  tg_example.cpp
-  trajectory_generation.cpp
+  example_et.cpp
+  #trajectory_generation.cpp
 )
 
 include_directories(${EXAMPLE_PROJECT_NAME}

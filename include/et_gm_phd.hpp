@@ -12,6 +12,7 @@
 
 #include "gm_phd_calibrations.hpp"
 #include "extended_object.hpp"
+#include "partitioning.hpp"
 
 namespace mot {
   template <size_t state_size, size_t measurement_size>
@@ -38,7 +39,6 @@ namespace mot {
       void Run(const double timestamp, const std::vector<Measurement> & measurements) {
         SetTimestamps(timestamp);
         // Make partitioning - create object input hypothesis
-        MakeDistancePartitioning(measurements);
         PrepareInputHypothesis(measurements);
         // Run Filter
         Predict();
@@ -372,74 +372,17 @@ namespace mot {
         }
       }
 
-      void CalculateDistances(const std::vector<Measurement> & measurements) {
-        // Clear matrix
-        for (auto & row : distance_matrix_)
-          row.clear();
-        distance_matrix_.clear();
-
-        // Allocate new matrix
-        distance_matrix_ = DistanceMatrix(measurements.size());
-        for (auto & row : distance_matrix_)
-          row.resize(measurements.size());
-        
-        // Calculate distances
-        for (auto row_index = 0u; row_index < measurements.size(); row_index++) {
-          for (auto col_index = row_index; col_index < measurements.size(); col_index++) {
-            const auto distance = CalculateMahalanobisDistance(measurements.at(row_index), measurements.at(col_index));
-            distance_matrix_.at(row_index).at(col_index) = distance;
-            distance_matrix_.at(col_index).at(row_index) = distance;
-          }
-        }
-      }
-
       void PrepareInputHypothesis(const std::vector<Measurement> & measurements) {
-        input_hypothesis_.resize(cell_id_);
+        // Make partitioning
+        const auto [cell_id, cell_numbers] = partitioner_.MakePartitioning(measurements);
+
+        // Convert to input hypothesis
+        input_hypothesis_.resize(cell_id);
         for (auto & ih : input_hypothesis_)
           ih.associated_measurements_indices.clear();
 
-        for (auto detection_index = 0u; detection_index < cell_numbers_.size(); detection_index++)
-          input_hypothesis_.at(cell_numbers_.at(detection_index)).associated_measurements_indices.push_back(detection_index);
-      }
-
-      void MakeDistancePartitioning(const std::vector<Measurement> & measurements) {
-        // Prepare distance matrix
-        CalculateDistances(measurements);
-        
-        // Prepare cells number
-        cell_numbers_.resize(measurements.size());
-        std::fill(cell_numbers_.begin(), cell_numbers_.end(), -1u);
-        
-        // Main partitioning loop
-        cell_id_ = 0u;
-        for (auto i = 0; i < measurements.size(); i++) {
-          if (cell_numbers_.at(i) == -1u) {
-            cell_numbers_.at(i) = cell_id_;
-            FindNeihgbours(i, measurements, cell_id_);
-            cell_id_++;
-          }
-        }
-      }
-
-      void FindNeihgbours(const uint32_t i, const std::vector<Measurement> & measurements, const uint32_t cell_id) {
-        for (auto j = 0u; j < measurements.size(); j++) {
-          const auto is_different_index = (j != i);
-          const auto is_in_maximum_range = (distance_matrix_.at(i).at(j) <= 100.0);
-          const auto is_non_initialized = (cell_numbers_.at(j) == -1u);
-
-          if (is_different_index && is_in_maximum_range && is_non_initialized) {
-            cell_numbers_.at(j) = cell_id;
-            FindNeihgbours(j, measurements, cell_id);
-          }
-        }
-      }
-
-      static float CalculateMahalanobisDistance(const Measurement & z_i, const Measurement & z_j) {
-        const auto diff = z_i.value - z_j.value;
-        const auto covariance = z_i.covariance + z_j.covariance;
-
-        const auto distance_raw = diff.transpose() * covariance.inverse() * diff;
-        return distance_raw(0u);
+        for (auto detection_index = 0u; detection_index < cell_numbers.size(); detection_index++)
+          input_hypothesis_.at(cell_numbers.at(detection_index)).associated_measurements_indices.push_back(detection_index);
       }
 
       static double NormPdf(const MeasurementSizeVector & z, const MeasurementSizeVector & nu, const MeasurementSizeMatrix & cov) {
@@ -449,16 +392,12 @@ namespace mot {
         return c * e;
       }
 
-      using DistanceMatrix = std::vector<std::vector<float>>;
-
       double prev_timestamp_ = 0.0;
       bool is_initialized_ = false;
-      int32_t cell_id_ = 0u;
-      DistanceMatrix distance_matrix_;
-      std::vector<int32_t> cell_numbers_;
       std::vector<Object> objects_;
       std::vector<InputHypothesis> input_hypothesis_;
       std::vector<Hypothesis> hypothesis_;
+      DistancePartitioner<measurement_size> partitioner_;
 
       const double gamma_ = 1.0;
       const double lambda_ = 0.1;
