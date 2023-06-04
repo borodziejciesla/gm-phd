@@ -14,7 +14,7 @@
 #include "value_with_covariance.hpp"
 
 namespace mot {
-  template <size_t state_size, size_t measurement_size>
+  template <size_t state_size, size_t measurement_size, typename Hypothesis, typename PredictedHypothesis>
   class BaseGmPhd {
     public:
       using StateSizeVector = Eigen::Vector<double, state_size>;
@@ -37,54 +37,16 @@ namespace mot {
         return objects_;
       }
 
-      virtual double GetWeightsSum(void) const = 0;
+      double GetWeightsSum(void) const {
+        return std::accumulate(hypothesis_.begin(), hypothesis_.end(),
+          0.0,
+          [](double sum, const Hypothesis & hypothesis) {
+            return sum + hypothesis.weight;
+          }
+        );
+      }
 
     protected:
-      struct Hypothesis {
-        Hypothesis(void) = default;
-        Hypothesis(const Hypothesis&) = default;
-        Hypothesis(Hypothesis&&) = default;
-        Hypothesis & operator=(const Hypothesis&) = default;
-        Hypothesis(const double w, const StateSizeVector s, const StateSizeMatrix c)
-          : weight{w}
-          , state{s}
-          , covariance{c} {}
-
-        bool operator==(const Hypothesis & arg) {
-          return (weight == arg.weight)
-            && (state == arg.state)
-            && (covariance == arg.covariance);
-        }
-
-        double weight = 0.0;
-        StateSizeVector state = StateSizeVector::Zero();
-        StateSizeMatrix covariance = StateSizeMatrix::Zero();
-      };
-
-      struct PredictedHypothesis {
-        PredictedHypothesis(void) = default;
-        PredictedHypothesis(const PredictedHypothesis&) = default;
-        PredictedHypothesis(PredictedHypothesis&&) = default;
-        PredictedHypothesis & operator=(const PredictedHypothesis&) = default;
-        PredictedHypothesis(const Hypothesis h,
-          const MeasurementSizeVector pm,
-          const MeasurementSizeMatrix im,
-          const Eigen::Matrix<double, state_size, measurement_size> kg,
-          const StateSizeMatrix uc)
-          : hypothesis{h}
-          , predicted_measurement{pm}
-          , innovation_matrix{im}
-          , kalman_gain{kg}
-          , updated_covariance{uc} {}
-
-        Hypothesis hypothesis;
-
-        MeasurementSizeVector predicted_measurement;
-        MeasurementSizeMatrix innovation_matrix;
-        Eigen::Matrix<double, state_size, measurement_size> kalman_gain;
-        StateSizeMatrix updated_covariance;
-      };
-
       virtual Hypothesis PredictHypothesis(const Hypothesis & hypothesis) = 0;
       virtual void PrepareTransitionMatrix(void) = 0;
       virtual void PrepareProcessNoiseMatrix(void) = 0;
@@ -97,7 +59,6 @@ namespace mot {
       StateSizeMatrix transition_matrix_ = StateSizeMatrix::Zero();
       StateSizeMatrix process_noise_covariance_matrix_ = StateSizeMatrix::Zero();
 
-    private:
       void SetTimestamps(const double timestamp) {
         if (prev_timestamp_ != 0.0)
           time_delta = timestamp - prev_timestamp_;
@@ -113,83 +74,13 @@ namespace mot {
         PredictExistingTargets();
       }
 
-      void PredictExistingTargets(void) {
-        // Prepare for prediction 
-        PrepareTransitionMatrix();
-        PrepareProcessNoiseMatrix();
-        // Predict
-        std::transform(hypothesis_.begin(), hypothesis_.end(),
-          std::back_inserter(predicted_hypothesis_),
-          [this](const Hypothesis & hypothesis) {
-            const auto predicted_state = PredictHypothesis(hypothesis);
+      virtual void PredictExistingTargets(void) = 0;
 
-            const auto predicted_measurement = calibrations_.observation_matrix * hypothesis.state;
-            const auto innovation_covariance = calibrations_.measurement_covariance
-              + calibrations_.observation_matrix * hypothesis.covariance * calibrations_.observation_matrix.transpose();
-            const auto kalman_gain = hypothesis.covariance * calibrations_.observation_matrix.transpose()
-              * innovation_covariance.inverse();
-            const auto predicted_covariance = (StateSizeMatrix::Identity() - kalman_gain * calibrations_.observation_matrix)
-              * hypothesis.covariance;
+      virtual void Update(const std::vector<Measurement> & measurements) = 0;
 
-            return PredictedHypothesis(predicted_state, predicted_measurement, innovation_covariance, kalman_gain, predicted_covariance);
-          }
-        );
-      }
+      virtual void UpdateExistedHypothesis(void) = 0;
 
-      void Update(const std::vector<Measurement> & measurements) {
-        //UpdateExistedHypothesis();
-        MakeMeasurementUpdate(measurements);
-      }
-
-      void UpdateExistedHypothesis(void) {
-        hypothesis_.clear();
-        std::transform(predicted_hypothesis_.begin(), predicted_hypothesis_.end(),
-          predicted_hypothesis_.begin(),
-          [this](const PredictedHypothesis & hypothesis) {
-            PredictedHypothesis updated_hypothesis = hypothesis;
-
-            updated_hypothesis.hypothesis.weight = (1.0 - calibrations_.pd) * hypothesis.hypothesis.weight;
-            updated_hypothesis.hypothesis.state = hypothesis.hypothesis.state;
-            updated_hypothesis.hypothesis.covariance = hypothesis.hypothesis.covariance;
-
-            return updated_hypothesis;
-          }
-        );
-      }
-
-      void MakeMeasurementUpdate(const std::vector<Measurement> & measurements) {
-        hypothesis_.clear();
-
-        for (const auto & measurement : measurements) {
-          std::vector<Hypothesis> new_hypothesis;
-          for (const auto & predicted_hypothesis : predicted_hypothesis_) {
-            const auto weight = calibrations_.pd * predicted_hypothesis.hypothesis.weight * NormPdf(measurement.value, predicted_hypothesis.predicted_measurement, predicted_hypothesis.innovation_matrix);
-            const auto state = predicted_hypothesis.hypothesis.state + predicted_hypothesis.kalman_gain * (measurement.value - predicted_hypothesis.predicted_measurement);
-            const auto covariance = predicted_hypothesis.hypothesis.covariance;
-
-            new_hypothesis.push_back(Hypothesis(weight, state, covariance));
-          }
-          // Correct weights
-          const auto weights_sum = std::accumulate(new_hypothesis.begin(), new_hypothesis.end(),
-            0.0,
-            [this](double sum, const Hypothesis & curr) {
-              return sum + curr.weight * (1.0 - calibrations_.pd);
-            }
-          );
-          // Normalize weight
-          for (auto & hypothesis : new_hypothesis)
-            hypothesis.weight *= ((1.0 - calibrations_.pd) / (calibrations_.kappa + weights_sum));
-          // Add new hypothesis to vector
-          hypothesis_.insert(hypothesis_.end(), new_hypothesis.begin(), new_hypothesis.end());
-        }
-        // Add prediced previously
-        std::transform(predicted_hypothesis_.begin(), predicted_hypothesis_.end(),
-          std::back_inserter(hypothesis_),
-          [](const PredictedHypothesis & predicted_hypothesis) {
-            return predicted_hypothesis.hypothesis;
-          }
-        );
-      }
+      virtual void MakeMeasurementUpdate(const std::vector<Measurement> & measurements) = 0;
 
       void Prune(void) {
         // Select elements with weigths over turncation threshold

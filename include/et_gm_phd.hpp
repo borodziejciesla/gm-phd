@@ -10,13 +10,66 @@
 
 #include <Eigen/Dense>
 
-#include "gm_phd_calibrations.hpp"
+#include "base_gm_phd.hpp"
 #include "extended_object.hpp"
+#include "gm_phd_calibrations.hpp"
 #include "partitioning.hpp"
 
 namespace mot {
+  /* Hypothesis structure */
+  struct Hypothesis {
+    Hypothesis(void) = default;
+    Hypothesis(const Hypothesis&) = default;
+    Hypothesis(Hypothesis&&) = default;
+    Hypothesis & operator=(const Hypothesis&) = default;
+    Hypothesis(const double w, const StateSizeVector s, const StateSizeMatrix c, const ExtentState e)
+      : weight{w}
+      , state{s}
+      , covariance{c}
+      , extent_state{e} {}
+
+    bool operator==(const Hypothesis & arg) {
+      return (weight == arg.weight)
+        && (state == arg.state)
+        && (covariance == arg.covariance);
+    }
+
+    double weight = 0.0;
+    StateSizeVector state = StateSizeVector::Zero();
+    StateSizeMatrix covariance = StateSizeMatrix::Zero();
+    ExtentState extent_state = ExtentState();
+  };
+
+  /* Predicted Hypothesis structure */
+  struct InputHypothesis {
+    InputHypothesis(void) = default;
+    InputHypothesis(const InputHypothesis&) = default;
+    InputHypothesis(InputHypothesis&&) = default;
+    InputHypothesis & operator=(const InputHypothesis&) = default;
+    InputHypothesis(const double w, const StateSizeVector s, const StateSizeMatrix c, const ExtentState e)
+      : weight{w}
+      , state{s}
+      , covariance{c} {}
+
+    bool operator==(const Hypothesis & arg) {
+      return (weight == arg.weight)
+        && (state == arg.state)
+        && (covariance == arg.covariance);
+    }
+
+    void AddDetectionIndex(const uint32_t detection_index) {
+      associated_measurements_indices.push_back(detection_index);
+    }
+
+    double weight = 0.0;
+    StateSizeVector state = StateSizeVector::Zero();
+    StateSizeMatrix covariance = StateSizeMatrix::Zero();
+    std::vector<size_t> associated_measurements_indices;
+  };
+
+  /* ExtendedTarget GM-PGD Class */
   template <size_t state_size, size_t measurement_size>
-  class EtGmPhd {
+  class EtGmPhd : public BaseGmPhd<state_size, measurement_size, Hypothesis, InputHypothesis> {
     public:
       using StateSizeVector = Eigen::Vector<double, state_size>;
       using StateSizeMatrix = Eigen::Matrix<double, state_size, state_size>;
@@ -32,10 +85,6 @@ namespace mot {
 
       ~EtGmPhd(void) = default;
 
-      const std::vector<Object> & GetObjects(void) const {
-        return objects_;
-      }
-
       void Run(const double timestamp, const std::vector<Measurement> & measurements) {
         SetTimestamps(timestamp);
         // Make partitioning - create object input hypothesis
@@ -48,92 +97,15 @@ namespace mot {
         ExtractObjects();
       }
 
-      double GetWeightsSum(void) const {
-        return std::accumulate(hypothesis_.begin(), hypothesis_.end(),
-          0.0,
-          [](double sum, const Hypothesis & hypothesis) {
-            return sum + hypothesis.weight;
-          }
-        );
-      }
-
     protected:
-      struct Hypothesis {
-        Hypothesis(void) = default;
-        Hypothesis(const Hypothesis&) = default;
-        Hypothesis(Hypothesis&&) = default;
-        Hypothesis & operator=(const Hypothesis&) = default;
-        Hypothesis(const double w, const StateSizeVector s, const StateSizeMatrix c, const ExtentState e)
-          : weight{w}
-          , state{s}
-          , covariance{c}
-          , extent_state{e} {}
-
-        bool operator==(const Hypothesis & arg) {
-          return (weight == arg.weight)
-            && (state == arg.state)
-            && (covariance == arg.covariance);
-        }
-
-        double weight = 0.0;
-        StateSizeVector state = StateSizeVector::Zero();
-        StateSizeMatrix covariance = StateSizeMatrix::Zero();
-        ExtentState extent_state = ExtentState();
-      };
-
-      struct InputHypothesis {
-        InputHypothesis(void) = default;
-        InputHypothesis(const InputHypothesis&) = default;
-        InputHypothesis(InputHypothesis&&) = default;
-        InputHypothesis & operator=(const InputHypothesis&) = default;
-        InputHypothesis(const double w, const StateSizeVector s, const StateSizeMatrix c, const ExtentState e)
-          : weight{w}
-          , state{s}
-          , covariance{c} {}
-
-        bool operator==(const Hypothesis & arg) {
-          return (weight == arg.weight)
-            && (state == arg.state)
-            && (covariance == arg.covariance);
-        }
-
-        void AddDetectionIndex(const uint32_t detection_index) {
-          associated_measurements_indices.push_back(detection_index);
-        }
-
-        double weight = 0.0;
-        StateSizeVector state = StateSizeVector::Zero();
-        StateSizeMatrix covariance = StateSizeMatrix::Zero();
-        std::vector<size_t> associated_measurements_indices;
-      };
-
       virtual Hypothesis PredictHypothesis(const Hypothesis & object) = 0;
       virtual void PrepareTransitionMatrix(void) = 0;
       virtual void PrepareProcessNoiseMatrix(void) = 0;
       virtual void PredictBirths(void) = 0;
-
-      double time_delta = 0.0;
-      GmPhdCalibrations<state_size, measurement_size> calibrations_;
+      
       std::vector<Hypothesis> predicted_hypothesis_;
-      StateSizeMatrix transition_matrix_ = StateSizeMatrix::Zero();
-      StateSizeMatrix process_noise_covariance_matrix_ = StateSizeMatrix::Zero();
 
     private:
-      void SetTimestamps(const double timestamp) {
-        if (prev_timestamp_ != 0.0)
-          time_delta = timestamp - prev_timestamp_;
-        prev_timestamp_ = timestamp;
-      }
-
-      void Predict(void) {
-        if (is_initialized_)
-          predicted_hypothesis_.clear();
-        else
-          is_initialized_ = true;
-        // PredictBirths();
-        PredictExistingTargets();
-      }
-
       void PredictExistingTargets(void) {
         // Prepare for prediction 
         PrepareTransitionMatrix();
@@ -148,13 +120,14 @@ namespace mot {
             predicted_state.weight *= calibrations_.ps;
 
             // Predict shape
+            // ?
 
             return Hypothesis(predicted_state);
           }
         );
       }
 
-      void UpdateMeasurements(const std::vector<Measurement> & measurement) {
+      void Update(const std::vector<Measurement> & measurement) {
         // Clear hypothesis list
         hypothesis_.clear();
         // Create new hypothesis
@@ -283,95 +256,6 @@ namespace mot {
         return dw;
       }
 
-      void Prune(void) {
-        // Select elements with weigths over turncation threshold
-        std::vector<Hypothesis> pruned_hypothesis;
-        std::copy_if(hypothesis_.begin(), hypothesis_.end(),
-          std::back_inserter(pruned_hypothesis),
-          [this](const Hypothesis & hypothesis) {
-            return hypothesis.weight >= calibrations_.truncation_threshold;
-          }
-        );
-        std::vector<std::pair<Hypothesis, bool>> pruned_hypothesis_marked;
-        std::transform(pruned_hypothesis.begin(), pruned_hypothesis.end(),
-          std::back_inserter(pruned_hypothesis_marked),
-          [](const Hypothesis & hypothesis) {
-            return std::make_pair(hypothesis, false);
-          }        
-        );
-
-        // Merge hypothesis
-        std::vector<Hypothesis> merged_hypothesis;
-        auto non_marked_hypothesis_counter = [](size_t sum, const std::pair<Hypothesis, bool> & markable_hypothesis) {
-          return sum + (markable_hypothesis.second ? 0u : 1u);
-        };
-        auto non_merged_hypothesis_number = std::accumulate(pruned_hypothesis_marked.begin(), pruned_hypothesis_marked.end(), 0u, non_marked_hypothesis_counter);
-
-        while (non_merged_hypothesis_number > 0u) {
-          auto I = pruned_hypothesis_marked | std::views::filter([](const std::pair<Hypothesis, bool> & hypothesis_mark) { return !hypothesis_mark.second; });
-
-          // Select maximum weight element
-          const auto maximum_weight_hypothesis = *std::max_element(I.begin(), I.end(),
-            [](const std::pair<Hypothesis, bool> & a, const std::pair<Hypothesis, bool> & b) {
-              return a.first.weight < b.first.weight;
-            }
-          );
-
-          // Select hypothesis in merging threshold
-          auto L = pruned_hypothesis_marked | std::views::filter(
-            [maximum_weight_hypothesis,this](const std::pair<Hypothesis, bool> & markable_hypothesis) {
-              const auto diff = markable_hypothesis.first.state - maximum_weight_hypothesis.first.state;
-              const auto distance_matrix = diff.transpose() * markable_hypothesis.first.covariance.inverse() * diff;
-              return (distance_matrix(0) < calibrations_.merging_threshold) && !markable_hypothesis.second;
-            }
-          );
-
-          // Calculate new merged element
-          const auto merged_weight = std::accumulate(L.begin(), L.end(),
-            0.0,
-            [](double sum, const std::pair<Hypothesis, bool> & hypothesis) {
-              return sum + hypothesis.first.weight;
-            }
-          );
-          
-          StateSizeVector merged_state = StateSizeVector::Zero();
-          for (const auto l : L)
-            merged_state += (l.first.weight * l.first.state) / merged_weight;
-
-          StateSizeMatrix merged_covariance = StateSizeMatrix::Zero();
-          for (const auto l : L) {
-            const auto diff = merged_state - l.first.state;
-            merged_covariance += (l.first.covariance + diff * diff.transpose()) / merged_weight;
-          }
-
-          merged_hypothesis.push_back(Hypothesis(merged_weight, merged_state, merged_covariance, ExtentState()));
-          // Remove L from I
-          std::transform(L.begin(), L.end(),
-           L.begin(),
-            [](std::pair<Hypothesis, bool> & markable_hypothesis) {
-              markable_hypothesis.second = true;
-              return markable_hypothesis;
-            }
-          );
-          //
-          non_merged_hypothesis_number = std::accumulate(pruned_hypothesis_marked.begin(), pruned_hypothesis_marked.end(), 0u, non_marked_hypothesis_counter);
-        }
-        // Set final hypothesis
-        hypothesis_ = merged_hypothesis;
-      }
-
-      void ExtractObjects(void) {
-        objects_.clear();
-        for (const auto & hypothesis : hypothesis_) {
-          if (hypothesis.weight > 0.5) {
-            Object object;
-            object.kinematic_state.value = hypothesis.state;
-            object.kinematic_state.covariance = hypothesis.covariance;
-            objects_.push_back(object);
-          }
-        }
-      }
-
       void PrepareInputHypothesis(const std::vector<Measurement> & measurements) {
         // Make partitioning
         const auto [cell_id, cell_numbers] = partitioner_.MakePartitioning(measurements);
@@ -385,18 +269,7 @@ namespace mot {
           input_hypothesis_.at(cell_numbers.at(detection_index)).associated_measurements_indices.push_back(detection_index);
       }
 
-      static double NormPdf(const MeasurementSizeVector & z, const MeasurementSizeVector & nu, const MeasurementSizeMatrix & cov) {
-        const auto diff = z - nu;
-        const auto c = 1.0 / (std::sqrt(std::pow(std::numbers::pi, measurement_size) * cov.determinant()));
-        const auto e = std::exp(-0.5 * diff.transpose() * cov.inverse() * diff);
-        return c * e;
-      }
-
-      double prev_timestamp_ = 0.0;
-      bool is_initialized_ = false;
-      std::vector<Object> objects_;
       std::vector<InputHypothesis> input_hypothesis_;
-      std::vector<Hypothesis> hypothesis_;
       DistancePartitioner<measurement_size> partitioner_;
 
       const double gamma_ = 1.0;
