@@ -93,6 +93,7 @@
         "unordered_set": "cpp",
         "typeindex": "cpp",
         "variant": "cpp",
-        "*.txx": "cpp"
+        "*.txx": "cpp",
+        "core": "cpp"
     }
 }

@@ -17,41 +17,43 @@
 
 namespace mot {
   /* Hypothesis structure */
-  struct Hypothesis {
-    Hypothesis(void) = default;
-    Hypothesis(const Hypothesis&) = default;
-    Hypothesis(Hypothesis&&) = default;
-    Hypothesis & operator=(const Hypothesis&) = default;
-    Hypothesis(const double w, const StateSizeVector s, const StateSizeMatrix c, const ExtentState e)
+  typedef <size_t state_size>
+  struct EtHypothesis {
+    EtHypothesis(void) = default;
+    EtHypothesis(const EtHypothesis&) = default;
+    EtHypothesis(EtHypothesis&&) = default;
+    EtHypothesis & operator=(const EtHypothesis&) = default;
+    EtHypothesis(const double w, const Eigen::Vector<double, state_size> s, const Eigen::Matrix<double, state_size, state_size> c, const ExtentState e)
       : weight{w}
       , state{s}
       , covariance{c}
       , extent_state{e} {}
 
-    bool operator==(const Hypothesis & arg) {
+    bool operator==(const EtHypothesis & arg) {
       return (weight == arg.weight)
         && (state == arg.state)
         && (covariance == arg.covariance);
     }
 
     double weight = 0.0;
-    StateSizeVector state = StateSizeVector::Zero();
-    StateSizeMatrix covariance = StateSizeMatrix::Zero();
+    Eigen::Vector<double, state_size> state = Eigen::Vector<double, state_size>::Zero();
+    Eigen::Matrix<double, state_size, state_size> covariance = Eigen::Matrix<double, state_size, state_size>::Zero();
     ExtentState extent_state = ExtentState();
   };
 
   /* Predicted Hypothesis structure */
-  struct InputHypothesis {
-    InputHypothesis(void) = default;
-    InputHypothesis(const InputHypothesis&) = default;
-    InputHypothesis(InputHypothesis&&) = default;
-    InputHypothesis & operator=(const InputHypothesis&) = default;
-    InputHypothesis(const double w, const StateSizeVector s, const StateSizeMatrix c, const ExtentState e)
+  typedef <size_t state_size, size_t measurement_size>
+  struct EtInputHypothesis {
+    EtInputHypothesis(void) = default;
+    EtInputHypothesis(const EtInputHypothesis&) = default;
+    EtInputHypothesis(EtInputHypothesis&&) = default;
+    EtInputHypothesis & operator=(const EtInputHypothesis&) = default;
+    EtInputHypothesis(const double w, const Eigen::Vector<double, state_size> s, const Eigen::Matrix<double, state_size, state_size> c, const ExtentState e)
       : weight{w}
       , state{s}
       , covariance{c} {}
 
-    bool operator==(const Hypothesis & arg) {
+    bool operator==(const EtHypothesis & arg) {
       return (weight == arg.weight)
         && (state == arg.state)
         && (covariance == arg.covariance);
@@ -62,14 +64,14 @@ namespace mot {
     }
 
     double weight = 0.0;
-    StateSizeVector state = StateSizeVector::Zero();
-    StateSizeMatrix covariance = StateSizeMatrix::Zero();
+    Eigen::Vector<double, state_size> state = Eigen::Vector<double, state_size>::Zero();
+    Eigen::Matrix<double, state_size, state_size> covariance = Eigen::Matrix<double, state_size, state_size>::Zero();
     std::vector<size_t> associated_measurements_indices;
   };
 
-  /* ExtendedTarget GM-PGD Class */
-  template <size_t state_size, size_t measurement_size>
-  class EtGmPhd : public BaseGmPhd<state_size, measurement_size, Hypothesis, InputHypothesis> {
+  /* ET-GM-PHD Class */
+  template <size_t state_size, size_t measurement_size, typename Hypothesis = EtHypothesis<state_size>, typename PredictedHypothesis = EtInputHypothesis<state_size, measurement_size>>
+  class EtGmPhd : public BaseGmPhd<state_size, measurement_size, EtHypothesis<state_size>, EtInputHypothesis<state_size, measurement_size>> {
     public:
       using StateSizeVector = Eigen::Vector<double, state_size>;
       using StateSizeMatrix = Eigen::Matrix<double, state_size, state_size>;
@@ -81,7 +83,7 @@ namespace mot {
 
     public:
       EtGmPhd(const GmPhdCalibrations<4u, 2u> & calibrations)
-        : calibrations_{calibrations} {}
+        : BaseGmPhd<state_size, measurement_size, EtHypothesis<state_size>, EtInputHypothesis<state_size, measurement_size>>(calibrations) {}
 
       ~EtGmPhd(void) = default;
 
@@ -98,11 +100,33 @@ namespace mot {
       }
 
     protected:
-      virtual Hypothesis PredictHypothesis(const Hypothesis & object) = 0;
+      virtual std::pair<StateSizeVector, StateSizeMatrix> PredictHypothesis(const StateSizeVector & state, const StateSizeMatrix & covariance) = 0;
       virtual void PrepareTransitionMatrix(void) = 0;
       virtual void PrepareProcessNoiseMatrix(void) = 0;
-      virtual void PredictBirths(void) = 0;
       
+      void PredictBirths(void) {
+        constexpr auto birth_objects_number = 100u;
+        for (auto index = 0; index < birth_objects_number; index++) {
+          Hypothesis birth_hypothesis;
+
+          birth_hypothesis.weight = 2.0 / static_cast<double>(birth_objects_number);
+
+          birth_hypothesis.state(0u) = pose_dist(e);
+          birth_hypothesis.state(1u) = pose_dist(e);
+          birth_hypothesis.state(2u) = velocity_dist(e);
+          birth_hypothesis.state(3u) = velocity_dist(e);
+
+          birth_hypothesis.covariance = 1.0 * StateSizeMatrix::Identity();
+
+          const auto predicted_measurement = calibrations_.observation_matrix * birth_hypothesis.state;
+          const auto innovation_covariance = calibrations_.measurement_covariance + calibrations_.observation_matrix * birth_hypothesis.covariance * calibrations_.observation_matrix.transpose();
+          const auto kalman_gain = birth_hypothesis.covariance * calibrations_.observation_matrix.transpose() * innovation_covariance.inverse();
+          const auto predicted_covariance = (StateSizeMatrix::Identity() - kalman_gain * calibrations_.observation_matrix) * birth_hypothesis.covariance;
+
+          predicted_hypothesis_.push_back(birth_hypothesis);
+        }
+      }
+
       std::vector<Hypothesis> predicted_hypothesis_;
 
     private:
@@ -115,9 +139,9 @@ namespace mot {
           std::back_inserter(predicted_hypothesis_),
           [this](const Hypothesis & hypothesis) {
             // Predict kinematics
-            auto predicted_state = PredictHypothesis(hypothesis);
-            // Predict weight
-            predicted_state.weight *= calibrations_.ps;
+            const auto [predicted_state, predicted_state_covariance] = PredictHypothesis(hypothesis.state, hypothesis.covariance);
+            const auto predicted_weight = calibrations_.ps * hypothesis.weight;
+            const Hypothesis predicted_hypothesis = Hypothesis(predicted_weight, predicted_state, predicted_state_covariance);
 
             // Predict shape
             // ?
@@ -269,7 +293,7 @@ namespace mot {
           input_hypothesis_.at(cell_numbers.at(detection_index)).associated_measurements_indices.push_back(detection_index);
       }
 
-      std::vector<InputHypothesis> input_hypothesis_;
+      std::vector<PredictedHypothesis> input_hypothesis_;
       DistancePartitioner<measurement_size> partitioner_;
 
       const double gamma_ = 1.0;

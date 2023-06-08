@@ -10,7 +10,8 @@ namespace mot {
       virtual ~EtGmPhdCvPose(void) = default;
 
     protected:
-      Hypothesis PredictHypothesis(const Hypothesis & hypothesis);
+      std::pair<Eigen::Vector<double, 4u>, Eigen::Matrix<double, 4u, 4u>> 
+        PredictHypothesis(const Eigen::Vector<double, 4u> & state, const Eigen::Matrix<double, 4u, 4u> & covariance);
       void PrepareTransitionMatrix(void);
       void PrepareProcessNoiseMatrix(void);
 

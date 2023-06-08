@@ -5,6 +5,7 @@
 #include <cmath>
 #include <numbers>
 #include <numeric>
+#include <random>
 #include <ranges>
 #include <vector>
 
@@ -14,6 +15,12 @@
 #include "value_with_covariance.hpp"
 
 namespace mot {
+  std::random_device r;
+  std::default_random_engine e(r());
+
+  std::uniform_real_distribution<double> pose_dist(-10.0, 10.0);
+  std::uniform_real_distribution<double> velocity_dist(-1.0, 1.0);
+
   template <size_t state_size, size_t measurement_size, typename Hypothesis, typename PredictedHypothesis>
   class BaseGmPhd {
     public:
@@ -47,7 +54,7 @@ namespace mot {
       }
 
     protected:
-      virtual Hypothesis PredictHypothesis(const Hypothesis & hypothesis) = 0;
+      virtual std::pair<StateSizeVector, StateSizeMatrix> PredictHypothesis(const StateSizeVector & state, const StateSizeMatrix & covariance) = 0;
       virtual void PrepareTransitionMatrix(void) = 0;
       virtual void PrepareProcessNoiseMatrix(void) = 0;
       virtual void PredictBirths(void) = 0;
@@ -171,7 +178,7 @@ namespace mot {
         }
       }
 
-      static double NormPdf(const MeasurementSizeVector & z, const MeasurementSizeVector & nu, const MeasurementSizeMatrix & cov) {
+      double NormPdf(const MeasurementSizeVector & z, const MeasurementSizeVector & nu, const MeasurementSizeMatrix & cov) const {
         const auto diff = z - nu;
         const auto c = 1.0 / (std::sqrt(std::pow(std::numbers::pi, measurement_size) * cov.determinant()));
         const auto e = std::exp(-0.5 * diff.transpose() * cov.inverse() * diff);
