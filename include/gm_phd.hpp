@@ -6,6 +6,7 @@
 #include <numbers>
 #include <numeric>
 #include <ranges>
+#include <tuple>
 #include <vector>
 
 #include <Eigen/Dense>
@@ -21,6 +22,8 @@ namespace mot {
       using StateSizeMatrix = Eigen::Matrix<double, state_size, state_size>;
       using MeasurementSizeVector = Eigen::Vector<double, measurement_size>;
       using MeasurementSizeMatrix = Eigen::Matrix<double, measurement_size, measurement_size>;
+      using SensorPoseVector = Eigen::Vector<double, 3u>;
+      using SensorPoseMatrix = Eigen::Matrix<double, 3u, 3u>;
 
       using Object = ValueWithCovariance<state_size>;
       using Measurement = ValueWithCovariance<measurement_size>;
@@ -39,6 +42,11 @@ namespace mot {
         // Post Processing
         Prune();
         ExtractObjects();
+      }
+
+      void MoveSensor(const SensorPoseVector & sensor_pose_delta, const SensorPoseMatrix & sensor_pose_delta_covariance) {
+        std::ignore = sensor_pose_delta;
+        std::ignore = sensor_pose_delta_covariance;
       }
 
       const std::vector<Object> & GetObjects(void) const {
