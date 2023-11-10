@@ -6,6 +6,7 @@
 #include <numbers>
 #include <numeric>
 #include <ranges>
+#include <tuple>
 #include <vector>
 
 #include <Eigen/Dense>
@@ -21,6 +22,8 @@ namespace mot {
       using StateSizeMatrix = Eigen::Matrix<double, state_size, state_size>;
       using MeasurementSizeVector = Eigen::Vector<double, measurement_size>;
       using MeasurementSizeMatrix = Eigen::Matrix<double, measurement_size, measurement_size>;
+      using SensorPoseVector = Eigen::Vector<double, 3u>;
+      using SensorPoseMatrix = Eigen::Matrix<double, 3u, 3u>;
 
       using Object = ValueWithCovariance<state_size>;
       using Measurement = ValueWithCovariance<measurement_size>;
@@ -39,6 +42,23 @@ namespace mot {
         // Post Processing
         Prune();
         ExtractObjects();
+      }
+
+      void MoveSensor(const SensorPoseVector & sensor_pose_delta, const SensorPoseMatrix & sensor_pose_delta_covariance) {
+        std::ignore = sensor_pose_delta;
+        std::ignore = sensor_pose_delta_covariance;
+
+        std::transform(hypothesis_.begin(), hypothesis_.end(),
+          hypothesis_.begin(),
+          [sensor_pose_delta,sensor_pose_delta_covariance](const Hypothesis & hypothesis) {
+            const auto dx = hypothesis.state(0) - sensor_pose_delta(0);
+            const auto dy = hypothesis.state(1) - sensor_pose_delta(1);
+            const auto cos_dyaw = std::cos(sensor_pose_delta(2));
+            const auto sin_dyaw = std::sin(sensor_pose_delta(2));
+            hypothesis.state(0) = cos_dyaw * dx - sin_dyaw * dy;
+            hypothesis.state(1) = sin_dyaw * dx + cos_dyaw * dy;
+          }
+        );
       }
 
       const std::vector<Object> & GetObjects(void) const {
