@@ -36,9 +36,9 @@ namespace mot {
         const ValueWithCovariance<extend_state_size> predicted_extend = {};
 
         Hypothesis predicted_hypothesis = {
-          predicted_weight,     // weight
-          predicted_kinematic,  // kinematic
-          predicted_extend      // extend
+          .weight = predicted_weight,     // weight
+          .kinematic = predicted_kinematic,  // kinematic
+          .extend = predicted_extend      // extend
         };
         
         return predicted_hypothesis;
@@ -47,14 +47,22 @@ namespace mot {
   }
 
   void RhmGmPhd::MakeCorrection(const std::vector<Measurement>& measurements) {
-    // modify weights
-    std::for_each(hypothesis_list_.begin(), hypothesis_list_.end(),
-      [this](Hypothesis& hypothesis) {
-        hypothesis.weight = 1.0f - (1.0f - std::exp(-gamma_)) * pd_ * hypothesis.weight;
+    predicted_hypothesis_list_.clear();
+
+    // Modify weights
+    std::transform(hypothesis_list_.begin(), hypothesis_list_.end(),
+      std::back_inserter(predicted_hypothesis_list_),
+      [this](const Hypothesis& hypothesis) -> Hypothesis {
+        Hypothesis new_hypothesis = {
+          .weight = 1.0f - (1.0f - std::exp(-gamma_)) * pd_ * hypothesis.weight,
+          .kinematic = hypothesis.kinematic,
+          .extend = hypothesis.extend
+        };
+        return new_hypothesis;
       }
     );
 
-    // go over partitioning
+    // Go over partitioning
     auto l = 0u;
     for (const auto & partition : partitions_) {
       // for (const auto & point : partition.points) {
