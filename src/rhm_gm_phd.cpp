@@ -75,7 +75,18 @@ namespace mot {
     };
   }
 
-  void RhmGmPhd::MakePruning(void) {}
+  void RhmGmPhd::MakePruning(void) {
+    std::vector<Hypothesis> pruned_hypothesis;
+    std::copy_if(predicted_hypothesis_list_.begin(), predicted_hypothesis_list_.end(),
+      std::back_inserter(pruned_hypothesis),
+      [this](const Hypothesis & hypothesis) -> bool {
+        return hypothesis.weight >= 0.25; // TODO: add calibration calibrations_.truncation_threshold;
+      }
+    );
+
+    predicted_hypothesis_list_.resize(pruned_hypothesis.size());
+    std::copy(pruned_hypothesis.begin(), pruned_hypothesis.end(), predicted_hypothesis_list_.begin());
+  }
 
   void RhmGmPhd::MakeMerging(void) {}
 
