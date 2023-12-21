@@ -63,6 +63,7 @@ namespace mot {
       const ObjectsList& GetObjects(void) const;
 
     private:
+      void MakeBirth(void);
       void MakePrediction(void);
       void MakeCorrection(const std::vector<Measurement>& measurements);
       void MakePruning(void);

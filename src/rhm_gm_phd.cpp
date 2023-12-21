@@ -1,5 +1,7 @@
 #include "rhm_gm_phd.hpp"
 
+#include <random>
+
 namespace mot {
   RhmGmPhd::RhmGmPhd() {};
 
@@ -9,6 +11,9 @@ namespace mot {
     time_delta_ = static_cast<float>(timestamp - prev_timestamp_);
     prev_timestamp_ = timestamp;
 
+    predicted_hypothesis_list_.clear();
+
+    MakeBirth();
     MakePrediction();
     MakeCorrection(measurements);
     MakePruning();
@@ -18,6 +23,36 @@ namespace mot {
 
   const RhmGmPhd::ObjectsList& RhmGmPhd::GetObjects(void) const {
     return objects_list_;
+  }
+
+  void RhmGmPhd::MakeBirth(void) {
+    static std::random_device r;
+    static std::default_random_engine e(r());
+
+    static std::uniform_real_distribution<double> pose_dist(-100.0, 100.0);
+    static std::uniform_real_distribution<double> velocity_dist(-5.0, 5.0);
+
+    constexpr auto birth_objects_number = 100u;
+    for (auto index = 0; index < birth_objects_number; index++) {
+      Hypothesis birth_hypothesis;
+
+      birth_hypothesis.weight = 2.0 / static_cast<double>(birth_objects_number);
+
+      birth_hypothesis.kinematic.value(0u) = pose_dist(e);
+      birth_hypothesis.kinematic.value(1u) = pose_dist(e);
+      birth_hypothesis.kinematic.value(2u) = velocity_dist(e);
+      birth_hypothesis.kinematic.value(3u) = velocity_dist(e);
+
+      birth_hypothesis.kinematic.covariance = KinematicStateSizeMatrix::Identity();
+
+      birth_hypothesis.extend.value(0u) = 0.5f;
+      birth_hypothesis.extend.value(1u) = 0.5f;
+      birth_hypothesis.extend.value(2u) = 0.5f;
+
+      birth_hypothesis.extend.covariance = ExtendStateSizeMatrix::Identity();
+
+      predicted_hypothesis_list_.push_back(birth_hypothesis);
+    }
   }
 
   void RhmGmPhd::MakePrediction(void) {
