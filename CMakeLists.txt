@@ -6,12 +6,13 @@ project("gm-phd" VERSION 0.0.1
 
 set(TEST_PROJECT_NAME ${PROJECT_NAME}_tests)
 set(EXAMPLE_PROJECT_NAME ${PROJECT_NAME}_example)
+set(EXAMPLE_RHM_PROJECT_NAME ${PROJECT_NAME}_example_rhm)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 option(BUILD_TESTS "Build tests" OFF)
-option(BUILD_EXAMPLE "Build example" OFF)
+option(BUILD_EXAMPLE "Build example" ON)
 
 ###############################################
 ################## Library ####################
@@ -29,6 +30,7 @@ add_library(${PROJECT_NAME}
 target_include_directories(${PROJECT_NAME}
   PUBLIC
     include
+    src
     ${EIGEN_INCLUDE_DIR}
 )
 
@@ -41,9 +43,8 @@ target_link_libraries(${PROJECT_NAME}
 ###############################################
 if(BUILD_EXAMPLE)
     project(${EXAMPLE_PROJECT_NAME})
-    
     add_subdirectory(example)
-endif() # BUILD_EXAMPLE
+endif(BUILD_EXAMPLE)
 
 # ###############################################
 # ################ Unit Tests ###################

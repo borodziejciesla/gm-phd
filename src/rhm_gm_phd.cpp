@@ -18,6 +18,7 @@ namespace mot {
 
     MakeBirth();
     MakePrediction();
+    MakePartitioning(measurements);
     MakeCorrection(measurements);
     MakePruning();
     MakeMerging();
@@ -85,8 +86,8 @@ namespace mot {
     jk_ = predicted_hypothesis_list_.size();
   }
 
-  void RhmGmPhd::MakePartitioning(void) {
-    //
+  void RhmGmPhd::MakePartitioning(const std::vector<Measurement>& measurements) {
+    distance_partitioner_.MakePartitioning(measurements);
   }
 
   void RhmGmPhd::MakeCorrection(const std::vector<Measurement>& measurements) {

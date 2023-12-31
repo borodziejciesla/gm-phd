@@ -11,7 +11,9 @@
 
 #include <Eigen/Dense>
 
+#include "distance_partitioner.hpp"
 #include "gm_phd_calibrations.hpp"
+#include "partition.hpp"
 #include "value_with_covariance.hpp"
 
 namespace mot {
@@ -20,10 +22,6 @@ namespace mot {
   constexpr auto measurement_size = 2u;
   constexpr auto nx = extend_state_size + kinematic_state_size;
   constexpr auto augmented_size = nx + 1u + measurement_size;
-
-  struct Partition {
-    std::vector<int> points;
-  };
 
   class RhmGmPhd {
     public:
@@ -81,7 +79,7 @@ namespace mot {
     private:
       void MakeBirth(void);
       void MakePrediction(void);
-      void MakePartitioning(void);
+      void MakePartitioning(const std::vector<Measurement>& measurements);
       void MakeCorrection(const std::vector<Measurement>& measurements);
       void MakePruning(void);
       void MakeMerging(void);
@@ -122,6 +120,8 @@ namespace mot {
       double z_mean_ = 0.0;
 
       int jk_ = 0u;
+
+      DistancePartitioner<Measurement> distance_partitioner_;
   };
 } //  namespace mot
 
