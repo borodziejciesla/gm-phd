@@ -224,6 +224,8 @@ namespace mot {
         return expected_pseudomeasurement;
       }
     );
+
+    return ut_points;
   }
 
   RhmGmPhd::AugmentedVector RhmGmPhd::UtCorrectionStep(const RhmGmPhd::UtPoints& ut_points) {
