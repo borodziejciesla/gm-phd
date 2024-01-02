@@ -93,6 +93,10 @@
         "unordered_set": "cpp",
         "typeindex": "cpp",
         "variant": "cpp",
-        "*.txx": "cpp"
+        "*.txx": "cpp",
+        "charconv": "cpp",
+        "format": "cpp",
+        "span": "cpp",
+        "valarray": "cpp"
     }
 }

@@ -33,10 +33,10 @@ namespace mot {
     static std::random_device r;
     static std::default_random_engine e(r());
 
-    static std::uniform_real_distribution<double> pose_dist(-100.0, 100.0);
+    static std::uniform_real_distribution<double> pose_dist(-300.0, 300.0);
     static std::uniform_real_distribution<double> velocity_dist(-5.0, 5.0);
 
-    constexpr auto birth_objects_number = 100u;
+    constexpr auto birth_objects_number = 10000u;
     for (auto index = 0; index < birth_objects_number; index++) {
       Hypothesis birth_hypothesis;
 
@@ -49,11 +49,16 @@ namespace mot {
 
       birth_hypothesis.kinematic.covariance = KinematicStateSizeMatrix::Identity();
 
-      birth_hypothesis.extend.value(0u) = 0.5;
-      birth_hypothesis.extend.value(1u) = 0.5;
-      birth_hypothesis.extend.value(2u) = 0.5;
+      birth_hypothesis.extend.value(0u) = 50.0;
+      birth_hypothesis.extend.value(1u) = 50.0;
+      birth_hypothesis.extend.value(2u) = 0.0;
 
       birth_hypothesis.extend.covariance = ExtendStateSizeMatrix::Identity();
+
+      birth_hypothesis.s = 0.7;
+      birth_hypothesis.var_s = 0.08;
+
+      birth_hypothesis.var_zero = 1.0;
 
       predicted_hypothesis_list_.push_back(birth_hypothesis);
     }
@@ -69,15 +74,15 @@ namespace mot {
         const KinematicStateSizeMatrix predicted_kinematic_covariance = transition_matrix_ * hypothesis.kinematic.covariance * transition_matrix_.transpose() + q_;
         const ValueWithCovariance<kinematic_state_size> predicted_kinematic = {
           predicted_kinematic_state,      //  value
-          predicted_kinematic_covariance  // kovariance
+          predicted_kinematic_covariance  // covariance
         };
 
         const ValueWithCovariance<extend_state_size> predicted_extend = {};
 
         Hypothesis predicted_hypothesis = {
-          .weight = predicted_weight,     // weight
-          .kinematic = predicted_kinematic,  // kinematic
-          .extend = predicted_extend      // extend
+          .weight = predicted_weight,       // weight
+          .kinematic = predicted_kinematic, // kinematic
+          .extend = predicted_extend        // extend
         };
         
         return predicted_hypothesis;
@@ -87,15 +92,13 @@ namespace mot {
   }
 
   void RhmGmPhd::MakePartitioning(const std::vector<Measurement>& measurements) {
-    distance_partitioner_.MakePartitioning(measurements);
+    partitions_ = distance_partitioner_.MakePartitioning(measurements);
   }
 
   void RhmGmPhd::MakeCorrection(const std::vector<Measurement>& measurements) {
-    predicted_hypothesis_list_.clear();
-
     // Modify weights
     std::transform(hypothesis_list_.begin(), hypothesis_list_.end(),
-      std::back_inserter(predicted_hypothesis_list_),
+      predicted_hypothesis_list_.begin(),
       [this](const Hypothesis& hypothesis) -> Hypothesis {
         Hypothesis new_hypothesis = {
           .weight = 1.0 - (1.0 - std::exp(-gamma_)) * pd_ * hypothesis.weight,
@@ -107,6 +110,7 @@ namespace mot {
     );
 
     // Go over partitioning
+    std::copy(predicted_hypothesis_list_.begin(), predicted_hypothesis_list_.end(), std::back_inserter(hypothesis_list_));
     auto l = 0u;
     for (const auto & partition : partitions_) {
       l++;
@@ -119,9 +123,8 @@ namespace mot {
         m_ << mu_(3u), mu_(4u);
         pl_ = 1.0;
 
-        for (auto nz = 0u; nz < partition.points.size(); nz++) {
+        for (auto nz = 0u; nz < partition.points.size(); nz++)
           ProcessMeasurementWithHypothesis(hypothesis_list_.at(j), measurements.at(partition.points.at(nz)));
-        }
 
         // Line 24, 25
         pl_ *= std::exp(-gamma_) * pd_ * gamma_;
@@ -150,10 +153,10 @@ namespace mot {
     // Line 12
     Eigen::Vector<double, augmented_size> mu_a = Eigen::Vector<double, augmented_size>::Zero();
     mu_a.head<nx>() = mu_;
-    mu_a(nx) = 0.0;//s?
+    mu_a(nx) = hypothesis.s;//s?
     Eigen::Matrix<double, augmented_size, augmented_size> c_a = Eigen::Matrix<double, augmented_size, augmented_size>::Identity();
     c_a.block<nx, nx>(0u, 0u) = px_;
-    c_a(nx, nx) = 1.0;// sigma_s
+    c_a(nx, nx) = hypothesis.var_s;// sigma_s
     c_a.block<measurement_size, measurement_size>(nx + 1u, nx + 1u) = measurement.covariance;
     // Line 13
     const Eigen::Vector2d diff = measurement.value - m_;
@@ -173,13 +176,15 @@ namespace mot {
     mu_.head<extend_state_size>() = mu_a.head<extend_state_size>();
     mu_.tail<kinematic_state_size>() = mu_a.tail<kinematic_state_size>();
 
-    pl_ *= (1.0 / (std::sqrt(s_ * 2.0 * pi))) * std::exp(-0.5 * z_mean_ * s_ * z_mean_);
+    pl_ *= std::max((1.0 / (std::sqrt(s_ * 2.0 * pi))) * std::exp(-0.5 * z_mean_ * s_ * z_mean_), 0.01);
   }
 
   RhmGmPhd::UtPoints RhmGmPhd::GetUkfPointsAndWeights(const AugmentedVector& mu_a, const AugmentedMatrix& c_a, const double theta, const Measurement& measurement) {
     UtPoints ut_points;
     const auto n = 5u;
     const auto lambda = std::pow(alpha_, 2u) + (static_cast<double>(n) + kappa_)  -  static_cast<double>(n);
+
+    ut_points.points_number = 2u * n + 1u;
 
     // Line 14
     ut_points.wm.resize(2u * n + 1u);
@@ -208,12 +213,12 @@ namespace mot {
         const auto a = mu_a(0u);
         const auto b = mu_a(1u);
         const auto phi = mu_a(2u);
-        const auto s = mu_a(augmented_size);
+        const auto s = mu_a(nx);
         const auto v = mu_a.tail<2u>();
         Eigen::Vector2d e;
         e << std::cos(theta), std::sin(theta);
         Eigen::Vector2d m;
-        m << mu_a(kinematic_state_size), mu_a(kinematic_state_size + 1u);
+        m << mu_a(extend_state_size), mu_a(extend_state_size + 1u);
 
         const auto r = a * b / std::sqrt(std::pow(a * std::sin(theta - phi), 2.0) + std::pow(b * std::cos(theta - phi), 2.0));
 

@@ -40,7 +40,9 @@ namespace mot {
 
     private:
       void CalculateDistances(const std::vector<MeasurementType>& measurements) {
+        distances_.resize(measurements.size());
         for (auto row_index = 0u; row_index < measurements.size(); row_index++) {
+          distances_.at(row_index).resize(measurements.size());
           for (auto col_index = 0u; col_index < measurements.size(); col_index++) {
             distances_[row_index][col_index] = (measurements[row_index].value - measurements[col_index].value).norm();
           }
@@ -57,13 +59,13 @@ namespace mot {
       }
 
       void ConvertToPartitions(void) {
-        partitions_.resize(cell_id_);
+        partitions_.resize(cell_id_ - 1u);
 
-        for (auto index = 0u; index < cell_id_; index++) {
-          partitions_.at(index).points.clear();
+        for (auto index = 1u; index < cell_id_; index++) {
+          partitions_.at(index - 1u).points.clear();
           for (auto i = 0u; i < cell_number_.size(); i++) {
             if (cell_number_.at(i) == index)
-              partitions_.at(index).points.push_back(i);
+              partitions_.at(index - 1u).points.push_back(i);
           }
         }
       }
@@ -71,7 +73,7 @@ namespace mot {
       std::vector<Partition> partitions_;
       std::vector<std::vector<double>> distances_;
       std::vector<size_t> cell_number_;
-      const double threshold_ = 1.0;
+      const double threshold_ = 100.0;
       size_t cell_id_ = 0u;
   };
 } //  namespace mot

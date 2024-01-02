@@ -7,7 +7,7 @@
         {
             "name": "Launch",
             
-            "type": "cppdbg",
+            "type": "extensionHost",
             "request": "launch",
             "program": "${workspaceFolder}/build/example/gm-phd_example",
             "args": [],
@@ -28,6 +28,14 @@
                     "ignoreFailures":true
                 }
             ]
+        },
+        {
+            "name": "RHM Launch",
+            "type": "lldb",
+            "request": "launch",
+            "program": "${workspaceFolder}/build/example/gm-phd_example_rhm",
+            "args": [],
+            "cwd": "${workspaceRoot}"
         }
     ]
 }
