@@ -36,6 +36,9 @@ namespace mot {
       using AugmentedVector = Eigen::Vector<double, augmented_size>;
       using AugmentedMatrix = Eigen::Matrix<double, augmented_size, augmented_size>;
 
+      using UkfVector = Eigen::Vector<double, extend_state_size + 3u>;
+      using UkfMatrix = Eigen::Matrix<double, extend_state_size + 3u, extend_state_size + 3u>;
+
       using ObservationMatrix = Eigen::Matrix<double, measurement_size, measurement_size>;
       using TransitionMatrix = Eigen::Matrix<double, kinematic_state_size, kinematic_state_size>;
 
@@ -62,7 +65,7 @@ namespace mot {
       using ObjectsList = std::vector<Object>;
 
       using UtPoints = struct {
-        std::vector<Eigen::Vector<double, augmented_size>> x_pts;
+        std::vector<UkfVector> x_pts;
         std::vector<double> wm;
         std::vector<double> wc;
         size_t points_number = 0u;
@@ -70,7 +73,7 @@ namespace mot {
       };
 
     public:
-      RhmGmPhd();
+      RhmGmPhd(void);
       ~RhmGmPhd(void);
 
       void Run(const double timestamp, const std::vector<Measurement>& measurements);
@@ -81,12 +84,13 @@ namespace mot {
       void MakePrediction(void);
       void MakePartitioning(const std::vector<Measurement>& measurements);
       void MakeCorrection(const std::vector<Measurement>& measurements);
+      void MakeKinematicCorrection(const Measurement& measurement);
+      void MakeExtendCorrection(const Hypothesis& hypothesis, const Measurement& measurement);
       void MakePruning(void);
       void MakeMerging(void);
       void ExtractObjects(void);
-      void ProcessMeasurementWithHypothesis(const Hypothesis& hypothesis, const Measurement& measurement);
-      UtPoints GetUkfPointsAndWeights(const AugmentedVector& mu_a, const AugmentedMatrix& c_a, const double theta, const Measurement& measurement);
-      AugmentedVector UtCorrectionStep(const UtPoints& ut_points);
+      UtPoints GetUkfPointsAndWeights(const UkfVector& mu_a, const UkfMatrix& c_a, const double theta, const Measurement& measurement);
+      UkfVector UtCorrectionStep(const UtPoints& ut_points);
 
       double prev_timestamp_ = 0.0;
       double time_delta_ = 0.0;
@@ -107,6 +111,8 @@ namespace mot {
       Eigen::Matrix<double, nx, nx> px_ = Eigen::Matrix<double, nx, nx>::Zero();
       Eigen::Vector2d m_ = Eigen::Vector2d::Zero();
       double pl_ = 1.0;
+      double scale_ = 0.7;
+      double scale_var_ = 0.08;
 
       double gamma_ = 1e-5;
       double pd_ = 0.9;
@@ -118,10 +124,24 @@ namespace mot {
 
       double s_ = 0.0;
       double z_mean_ = 0.0;
+      double z_mean_var_ = 0.0;
 
       int jk_ = 0u;
 
+      Eigen::Matrix<double, 2u, 4u> h_ = Eigen::Matrix<double, 2u, 4u>::Zero();
+
       DistancePartitioner<Measurement> distance_partitioner_;
+      std::vector<Hypothesis> pruned_hypothesis_;
+
+      /* B = 0.5 * (A + A') */
+      template <size_t matrix_size>
+      Eigen::Matrix<double, matrix_size, matrix_size> MakeMatrixSymetric(Eigen::Matrix<double, matrix_size, matrix_size> & matrix) {
+        Eigen::Matrix<double, matrix_size, matrix_size> output;
+        
+        output = 0.5 * (matrix + matrix.transpose());
+
+        return output;
+      }
   };
 } //  namespace mot
 
