@@ -7,6 +7,7 @@ else()
   message(FATAL_ERROR "Python3 not found, please install it.")
 endif()
 
+add_subdirectory(csv-parser)
 
 ##########################################################
 ##################### GM-PHD Example #####################
@@ -43,5 +44,6 @@ include_directories(${EXAMPLE_RHM_PROJECT_NAME}
 
 target_link_libraries(${EXAMPLE_RHM_PROJECT_NAME}
   gm-phd
+  csv
   ${Python3_LIBRARIES}
 )
