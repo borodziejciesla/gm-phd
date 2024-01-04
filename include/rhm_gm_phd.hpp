@@ -72,8 +72,10 @@ namespace mot {
         std::vector<double> z_pts;
       };
 
+      using RhmGmPhdCalibrations = GmPhdCalibrations<kinematic_state_size, measurement_size>;
+
     public:
-      RhmGmPhd(void);
+      explicit RhmGmPhd(const RhmGmPhdCalibrations& calibrations);
       ~RhmGmPhd(void);
 
       void Run(const double timestamp, const std::vector<Measurement>& measurements);
@@ -95,6 +97,8 @@ namespace mot {
       double prev_timestamp_ = 0.0;
       double time_delta_ = 0.0;
 
+      const RhmGmPhdCalibrations calibrations_;
+
       HypothesisList hypothesis_list_;
       HypothesisList predicted_hypothesis_list_;
 
@@ -114,9 +118,9 @@ namespace mot {
       double scale_ = 0.7;
       double scale_var_ = 0.08;
 
-      double gamma_ = 1e-5;
-      double pd_ = 0.9;
-      double ps_ = 0.9;
+      double gamma_ = 1.0f;
+      // double pd_ = 0.9;
+      // double ps_ = 0.9;
 
       const double alpha_ = 1.0;
       const double beta_ = 2.0;
@@ -127,8 +131,6 @@ namespace mot {
       double z_mean_var_ = 0.0;
 
       int jk_ = 0u;
-
-      Eigen::Matrix<double, 2u, 4u> h_ = Eigen::Matrix<double, 2u, 4u>::Zero();
 
       DistancePartitioner<Measurement> distance_partitioner_;
       std::vector<Hypothesis> pruned_hypothesis_;

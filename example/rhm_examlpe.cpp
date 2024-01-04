@@ -26,14 +26,14 @@ int main() {
   std::normal_distribution<double> normal_distribution(0.0, 1.0);
 
   /************************** Define tracker object **************************/
-  mot::GmPhdCalibrations<4u, 2u> calibrations;
+  mot::RhmGmPhd::RhmGmPhdCalibrations calibrations;
   calibrations.process_noise_diagonal = {1.0, 1.0, 100.0, 100.0};
   calibrations.observation_matrix = Eigen::Matrix<double, 2u, 4u>::Zero();
   calibrations.observation_matrix(0u, 0u) = 1.0;
   calibrations.observation_matrix(1u, 1u) = 1.0;
   calibrations.measurement_covariance = 0.2 * Eigen::Matrix<double, 2u, 2u>::Identity();
 
-  mot::RhmGmPhd gm_phd_filter = mot::RhmGmPhd();
+  mot::RhmGmPhd gm_phd_filter = mot::RhmGmPhd(calibrations);
 
   /************************** Run **************************/
   using Measurements = std::vector<mot::RhmGmPhd::Measurement>;

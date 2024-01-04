@@ -6,10 +6,8 @@
 namespace mot {
   constexpr auto pi = 3.141592653589793;
 
-  RhmGmPhd::RhmGmPhd(void) {
-    h_(0u, 0u) = 1.0;
-    h_(1u, 1u) = 1.0;
-  };
+  RhmGmPhd::RhmGmPhd(const RhmGmPhdCalibrations& calibrations)
+    : calibrations_{calibrations} {};
 
   RhmGmPhd::~RhmGmPhd(void) = default;
 
@@ -72,7 +70,7 @@ namespace mot {
     std::transform(hypothesis_list_.begin(), hypothesis_list_.end(),
       std::back_inserter(predicted_hypothesis_list_),
       [this](const Hypothesis& hypothesis) -> Hypothesis {
-        const auto predicted_weight = ps_ * hypothesis.weight;
+        const auto predicted_weight = calibrations_.ps * hypothesis.weight;
 
         const KinematicStateSizeVector predicted_kinematic_state = transition_matrix_ * hypothesis.kinematic.value;
         const KinematicStateSizeMatrix predicted_kinematic_covariance = transition_matrix_ * hypothesis.kinematic.covariance * transition_matrix_.transpose() + q_;
@@ -108,7 +106,7 @@ namespace mot {
       predicted_hypothesis_list_.begin(),
       [this](const Hypothesis& hypothesis) -> Hypothesis {
         Hypothesis new_hypothesis = {
-          .weight = 1.0 - (1.0 - std::exp(-gamma_)) * pd_ * hypothesis.weight,
+          .weight = 1.0 - (1.0 - std::exp(-gamma_)) * calibrations_.pd * hypothesis.weight,
           .kinematic = hypothesis.kinematic,
           .extend = hypothesis.extend,
           .s = hypothesis.s,
@@ -142,15 +140,15 @@ namespace mot {
         }
 
         // Line 24, 25
-        pl_ *= std::exp(-gamma_) * pd_ * gamma_;
+        pl_ *= std::exp(-gamma_) * calibrations_.pd * gamma_;
         Hypothesis new_hypothesis;
         new_hypothesis.weight = pl_;
         new_hypothesis.kinematic.value = mu_.tail<kinematic_state_size>();
         new_hypothesis.kinematic.covariance = px_.block<kinematic_state_size, kinematic_state_size>(extend_state_size, extend_state_size);
         new_hypothesis.extend.value = mu_.head<extend_state_size>();
         new_hypothesis.extend.covariance = px_.block<extend_state_size, extend_state_size>(0u, 0u);
-        new_hypothesis.s = scale_;
-        new_hypothesis.var_s = scale_var_;
+        new_hypothesis.s = 0.7;
+        new_hypothesis.var_s = 0.08;
 
         predicted_hypothesis_list_.push_back(new_hypothesis);
       }
@@ -171,12 +169,13 @@ namespace mot {
     const Eigen::Matrix<double, 4u, 4u>  kinematic_state_covariance = px_.block<kinematic_state_size, kinematic_state_size>(extend_state_size, extend_state_size);
 
     // Make correction
-    const Eigen::Vector<double, 2u> innovation = measurement.value - h_ * kinematic_state;
-    const Eigen::Matrix<double, 2u, 2u> innovation_covariance = h_ * kinematic_state_covariance * h_.transpose() + measurement.covariance;
-    const Eigen::Matrix<double, 4u, 2u> kalman_gain = kinematic_state_covariance * h_.transpose() * innovation_covariance.inverse();
+    const auto& h = calibrations_.observation_matrix;
+    const Eigen::Vector<double, 2u> innovation = measurement.value - h * kinematic_state;
+    const Eigen::Matrix<double, 2u, 2u> innovation_covariance = h * kinematic_state_covariance * h.transpose() + measurement.covariance;
+    const Eigen::Matrix<double, 4u, 2u> kalman_gain = kinematic_state_covariance * h.transpose() * innovation_covariance.inverse();
 
     mu_.tail<kinematic_state_size>() += kalman_gain * innovation;
-    px_.block<kinematic_state_size, kinematic_state_size>(extend_state_size, extend_state_size) = (KinematicStateSizeMatrix::Identity() - kalman_gain * h_) * kinematic_state_covariance;
+    px_.block<kinematic_state_size, kinematic_state_size>(extend_state_size, extend_state_size) = (KinematicStateSizeMatrix::Identity() - kalman_gain * h) * kinematic_state_covariance;
 
     // Force symetricity
     //px_.block<kinematic_state_size, kinematic_state_size>(extend_state_size, extend_state_size) = MakeMatrixSymetric<kinematic_state_size>(px_.block<kinematic_state_size, kinematic_state_size>(extend_state_size, extend_state_size));
@@ -239,8 +238,8 @@ namespace mot {
     mu_.head<extend_state_size>() += k.head<extend_state_size>() * (0.0f - z_mean_);
     px_.block<extend_state_size, extend_state_size>(0u, 0u) -= k.head<extend_state_size>() * z_mean_var_ * k.head<extend_state_size>().transpose();
 
-    scale_ += k.tail<1u>().norm() * (0.0f - z_mean_);
-    scale_var_ -= k.tail<1u>().norm() * z_mean_var_ * k.tail<1u>().transpose().norm();
+    // scale_ += k.tail<1u>().norm() * (0.0f - z_mean_);
+    // scale_var_ -= k.tail<1u>().norm() * z_mean_var_ * k.tail<1u>().transpose().norm();
 
     pl_ *= std::max((1.0 / (std::sqrt(z_mean_var_ * 2.0 * pi))) * std::exp(-0.5 * z_mean_ * z_mean_var_ * z_mean_), 0.01);
   }
@@ -320,8 +319,8 @@ namespace mot {
     pruned_hypothesis_.clear();
     std::copy_if(predicted_hypothesis_list_.begin(), predicted_hypothesis_list_.end(),
       std::back_inserter(pruned_hypothesis_),
-      [](const Hypothesis& hypothesis) -> bool {
-        return hypothesis.weight > 0.1;
+      [this](const Hypothesis& hypothesis) -> bool {
+        return hypothesis.weight > calibrations_.truncation_threshold;
       }
     );
   }
@@ -334,15 +333,23 @@ namespace mot {
   void RhmGmPhd::ExtractObjects(void) {
     objects_list_.clear();
     //objects_list_.resize(hypothesis_list_.size());
-    std::transform(hypothesis_list_.begin(), hypothesis_list_.end(),
-      std::back_inserter(objects_list_),
-      [](const Hypothesis& hypothesis) -> Object {
-        Object object = {
-          .kinematic = hypothesis.kinematic,
-          .extend = hypothesis.extend
-        };
-        return object;
-      }
-    );
+    for (const auto hypothesis : hypothesis_list_) {
+      Object object = {
+        .kinematic = hypothesis.kinematic,
+        .extend = hypothesis.extend
+      };
+      objects_list_.push_back(object);
+    }
+
+    // std::transform(hypothesis_list_.begin(), hypothesis_list_.end(),
+    //   std::back_inserter(objects_list_),
+    //   [](const Hypothesis& hypothesis) -> Object {
+    //     Object object = {
+    //       .kinematic = hypothesis.kinematic,
+    //       .extend = hypothesis.extend
+    //     };
+    //     return object;
+    //   }
+    // );
   };
 } //  namespace mot
