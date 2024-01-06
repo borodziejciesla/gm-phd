@@ -97,6 +97,9 @@
         "charconv": "cpp",
         "format": "cpp",
         "span": "cpp",
-        "valarray": "cpp"
+        "valarray": "cpp",
+        "csignal": "cpp",
+        "regex": "cpp",
+        "future": "cpp"
     }
 }

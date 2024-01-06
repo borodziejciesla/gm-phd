@@ -34,11 +34,13 @@ target_link_libraries(${EXAMPLE_PROJECT_NAME}
 add_executable(${EXAMPLE_RHM_PROJECT_NAME}
   rhm_examlpe.cpp
   trajectory_generation.cpp
+  sensor_data_reader.cpp
 )
 
 include_directories(${EXAMPLE_RHM_PROJECT_NAME}
   PUBLIC
   $<TARGET_PROPERTY:gm-phd,INTERFACE_INCLUDE_DIRECTORIES>
+  csv-parser/include
   ${Python3_INCLUDE_DIRS}
 )
 
