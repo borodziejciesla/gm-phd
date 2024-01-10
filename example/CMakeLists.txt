@@ -7,8 +7,6 @@ else()
   message(FATAL_ERROR "Python3 not found, please install it.")
 endif()
 
-add_subdirectory(csv-parser)
-
 ##########################################################
 ##################### GM-PHD Example #####################
 ##########################################################
@@ -32,15 +30,17 @@ target_link_libraries(${EXAMPLE_PROJECT_NAME}
 ################### GM-PHD-RHM Example ###################
 ##########################################################
 add_executable(${EXAMPLE_RHM_PROJECT_NAME}
-  rhm_examlpe.cpp
+  rhm_example_matlab.cpp
   trajectory_generation.cpp
   sensor_data_reader.cpp
 )
 
+add_subdirectory(csv-parser)
+
 include_directories(${EXAMPLE_RHM_PROJECT_NAME}
   PUBLIC
   $<TARGET_PROPERTY:gm-phd,INTERFACE_INCLUDE_DIRECTORIES>
-  csv-parser/include
+  csv-parser/single_include
   ${Python3_INCLUDE_DIRS}
 )
 

@@ -18,6 +18,7 @@ namespace mot::example {
       explicit SensorDataReader(const std::string& file_path);
 
       RadarScan GetNextScan(void);
+      size_t GetScansNumber(void) const;
 
     private:
       std::unique_ptr<csv::CSVReader> reader_;

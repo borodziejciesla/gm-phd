@@ -16,6 +16,8 @@ namespace mot::example {
         radar_scans_.push_back(radar_scan);
         radar_scan.second.clear();
         previous_scan_index_++;
+      } else if (previous_scan_index_ == 0u) {
+        previous_scan_index_ = 1u;
       }
 
       // Read line
@@ -43,5 +45,9 @@ namespace mot::example {
 
   RadarScan SensorDataReader::GetNextScan(void) {
     return radar_scans_.at(previous_scan_index_++);
+  }
+
+  size_t SensorDataReader::GetScansNumber(void) const {
+    return radar_scans_.size();
   }
 }
