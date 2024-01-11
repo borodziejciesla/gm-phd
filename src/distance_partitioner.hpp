@@ -73,7 +73,7 @@ namespace mot {
       std::vector<Partition> partitions_;
       std::vector<std::vector<double>> distances_;
       std::vector<size_t> cell_number_;
-      const double threshold_ = 500.0;
+      const double threshold_ = 3.0;
       size_t cell_id_ = 0u;
   };
 } //  namespace mot
