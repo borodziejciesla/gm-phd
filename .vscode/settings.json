@@ -1,4 +1,5 @@
 {
+    "editor.formatOnSave": true,
     "editor.tokenColorCustomizations": {
         "textMateRules": [
             {
@@ -93,6 +94,7 @@
         "unordered_set": "cpp",
         "typeindex": "cpp",
         "variant": "cpp",
-        "*.txx": "cpp"
+        "*.txx": "cpp",
+        "valarray": "cpp"
     }
 }

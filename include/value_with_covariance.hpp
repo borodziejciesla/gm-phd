@@ -6,8 +6,8 @@
 namespace mot {
   template <size_t size>
   struct ValueWithCovariance {
-    Eigen::Vector<double, size> value = Eigen::Vector<double, size>::Zero();
-    Eigen::Matrix<double, size, size> covariance = Eigen::Matrix<double, size, size>::Zero();
+    Eigen::Vector<float, size> value = Eigen::Vector<float, size>::Zero();
+    Eigen::Matrix<float, size, size> covariance = Eigen::Matrix<float, size, size>::Zero();
   };
 } //  namespace mot
 
