@@ -95,6 +95,13 @@
         "typeindex": "cpp",
         "variant": "cpp",
         "*.txx": "cpp",
-        "valarray": "cpp"
+        "valarray": "cpp",
+        "csignal": "cpp",
+        "any": "cpp",
+        "charconv": "cpp",
+        "codecvt": "cpp",
+        "future": "cpp",
+        "span": "cpp",
+        "format": "cpp"
     }
 }

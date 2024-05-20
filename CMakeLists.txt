@@ -21,6 +21,7 @@ include(GNUInstallDirs)
 find_package(Eigen3 3.3 REQUIRED NO_MODULE)
 
 add_library(${PROJECT_NAME}
+  src/gm_phd_factory.cpp
   src/gm_phd_cv_pose.cpp
   src/et_gm_phd_cv_pose.cpp
 )

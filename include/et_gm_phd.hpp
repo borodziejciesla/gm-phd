@@ -45,8 +45,9 @@ class EtGmPhd {
   }
 
   double GetWeightsSum(void) const {
-    return std::accumulate(hypothesis_.begin(), hypothesis_.end(), 0.0,
-                           [](double sum, const Hypothesis& hypothesis) { return sum + hypothesis.weight; });
+    return std::accumulate(
+        hypothesis_.begin(), hypothesis_.end(), 0.0,
+        [](double sum, const Hypothesis& hypothesis) { return sum + hypothesis.weight; });
   }
 
  protected:
@@ -55,7 +56,8 @@ class EtGmPhd {
     Hypothesis(const Hypothesis&) = default;
     Hypothesis(Hypothesis&&) = default;
     Hypothesis& operator=(const Hypothesis&) = default;
-    Hypothesis(const double w, const StateSizeVector s, const StateSizeMatrix c, const ExtentState e)
+    Hypothesis(const double w, const StateSizeVector s, const StateSizeMatrix c,
+               const ExtentState e)
         : weight{w}, state{s}, covariance{c}, extent_state{e} {}
 
     bool operator==(const Hypothesis& arg) {
@@ -73,7 +75,8 @@ class EtGmPhd {
     InputHypothesis(const InputHypothesis&) = default;
     InputHypothesis(InputHypothesis&&) = default;
     InputHypothesis& operator=(const InputHypothesis&) = default;
-    InputHypothesis(const double w, const StateSizeVector s, const StateSizeMatrix c, const ExtentState e)
+    InputHypothesis(const double w, const StateSizeVector s, const StateSizeMatrix c,
+                    const ExtentState e)
         : weight{w}, state{s}, covariance{c} {}
 
     bool operator==(const Hypothesis& arg) {
@@ -121,8 +124,8 @@ class EtGmPhd {
     PrepareTransitionMatrix();
     PrepareProcessNoiseMatrix();
     // Predict
-    std::transform(hypothesis_.begin(), hypothesis_.end(), std::back_inserter(predicted_hypothesis_),
-                   [this](const Hypothesis& hypothesis) {
+    std::transform(hypothesis_.begin(), hypothesis_.end(),
+                   std::back_inserter(predicted_hypothesis_), [this](const Hypothesis& hypothesis) {
                      // Predict kinematics
                      auto predicted_state = PredictHypothesis(hypothesis);
                      // Predict weight
@@ -143,10 +146,11 @@ class EtGmPhd {
   }
 
   void UpdateExistingHypothesis(void) {
-    std::transform(predicted_hypothesis_.begin(), predicted_hypothesis_.end(), std::back_inserter(hypothesis_),
-                   [this](const Hypothesis& hypothesis) {
-                     return Hypothesis((1.0 - (1.0 - std::exp(-gamma_)) * calibrations_.pd) * hypothesis.weight,
-                                       hypothesis.state, hypothesis.covariance, hypothesis.extent_state);
+    std::transform(predicted_hypothesis_.begin(), predicted_hypothesis_.end(),
+                   std::back_inserter(hypothesis_), [this](const Hypothesis& hypothesis) {
+                     return Hypothesis(
+                         (1.0 - (1.0 - std::exp(-gamma_)) * calibrations_.pd) * hypothesis.weight,
+                         hypothesis.state, hypothesis.covariance, hypothesis.extent_state);
                    });
   }
 
@@ -157,13 +161,15 @@ class EtGmPhd {
         const auto wp = CalculateOmegaP(input_hypothesis);
         const auto gamma = CalculateGamma(input_hypothesis);
         const auto dw = CalculateDw(input_hypothesis, measurements);
-        const auto phi_w = CalculateInputHypothesisPhi(predicted_hypothesis, input_hypothesis, measurements);
+        const auto phi_w =
+            CalculateInputHypothesisPhi(predicted_hypothesis, input_hypothesis, measurements);
 
-        const auto new_weight =
-            wp * (gamma * calibrations_.pd / dw) * phi_w * (predicted_hypothesis.weight / calibrations_.ps);
+        const auto new_weight = wp * (gamma * calibrations_.pd / dw) * phi_w *
+                                (predicted_hypothesis.weight / calibrations_.ps);
 
         // Calculate kinematic state and covariance
-        const auto [state, covariance] = UpdateKinematic(input_hypothesis, predicted_hypothesis, measurements);
+        const auto [state, covariance] =
+            UpdateKinematic(input_hypothesis, predicted_hypothesis, measurements);
 
         // Add element
         Hypothesis h;
@@ -176,21 +182,24 @@ class EtGmPhd {
     }
   }
 
-  std::pair<StateSizeVector, StateSizeMatrix> UpdateKinematic(const InputHypothesis& input_hypothesis,
-                                                              const Hypothesis& predicted_hypothesis,
-                                                              const std::vector<Measurement>& measurements) {
-    const auto kalman_gain = CalculateKalmaGain(input_hypothesis, predicted_hypothesis, measurements);
-    const auto [state, covariance] =
-        CalculateUpdatedKinematic(kalman_gain, input_hypothesis, predicted_hypothesis, measurements);
+  std::pair<StateSizeVector, StateSizeMatrix> UpdateKinematic(
+      const InputHypothesis& input_hypothesis, const Hypothesis& predicted_hypothesis,
+      const std::vector<Measurement>& measurements) {
+    const auto kalman_gain =
+        CalculateKalmaGain(input_hypothesis, predicted_hypothesis, measurements);
+    const auto [state, covariance] = CalculateUpdatedKinematic(kalman_gain, input_hypothesis,
+                                                               predicted_hypothesis, measurements);
 
     return std::make_pair(state, covariance);
   }
 
-  Eigen::MatrixXd CalculateKalmaGain(const InputHypothesis& input_hypothesis, const Hypothesis& predicted_hypothesis,
+  Eigen::MatrixXd CalculateKalmaGain(const InputHypothesis& input_hypothesis,
+                                     const Hypothesis& predicted_hypothesis,
                                      const std::vector<Measurement>& measurements) const {
     const auto detections_number = input_hypothesis.associated_measurements_indices.size();
 
-    Eigen::MatrixXd innovation_matrix(detections_number * measurement_size, detections_number * measurement_size);
+    Eigen::MatrixXd innovation_matrix(detections_number * measurement_size,
+                                      detections_number * measurement_size);
     Eigen::MatrixXd observation_matrix(state_size, detections_number * measurement_size);
 
     for (auto row_index = 0u; row_index < detections_number; row_index++) {
@@ -200,11 +209,12 @@ class EtGmPhd {
         const auto hph = calibrations_.observation_matrix * predicted_hypothesis.covariance *
                          calibrations_.observation_matrix.transpose();
         if (row_index != col_index) {
-          innovation_matrix.block(row_index * measurement_size, col_index * measurement_size, measurement_size,
-                                  measurement_size) = hph;
+          innovation_matrix.block(row_index * measurement_size, col_index * measurement_size,
+                                  measurement_size, measurement_size) = hph;
         } else {
-          innovation_matrix.block(row_index * measurement_size, col_index * measurement_size, measurement_size,
-                                  measurement_size) = hph + measurements.at(row_index).covariance;
+          innovation_matrix.block(row_index * measurement_size, col_index * measurement_size,
+                                  measurement_size, measurement_size) =
+              hph + measurements.at(row_index).covariance;
         }
       }
     }
@@ -213,10 +223,9 @@ class EtGmPhd {
     return predicted_hypothesis.covariance * observation_matrix * innovation_matrix_inversed;
   }
 
-  std::pair<StateSizeVector, StateSizeMatrix> CalculateUpdatedKinematic(const Eigen::MatrixXd& kalman_gain,
-                                                                        const InputHypothesis& input_hypothesis,
-                                                                        const Hypothesis& predicted_hypothesis,
-                                                                        const std::vector<Measurement>& measurements) {
+  std::pair<StateSizeVector, StateSizeMatrix> CalculateUpdatedKinematic(
+      const Eigen::MatrixXd& kalman_gain, const InputHypothesis& input_hypothesis,
+      const Hypothesis& predicted_hypothesis, const std::vector<Measurement>& measurements) {
     const auto detections_number = input_hypothesis.associated_measurements_indices.size();
 
     Eigen::MatrixXd observation_matrix(detections_number * measurement_size, state_size);
@@ -230,24 +239,29 @@ class EtGmPhd {
     }
 
     const auto state =
-        predicted_hypothesis.state + kalman_gain * (observation - observation_matrix * predicted_hypothesis.state);
-    const auto covariance =
-        (StateSizeMatrix::Identity() - kalman_gain * observation_matrix) * predicted_hypothesis.covariance;
+        predicted_hypothesis.state +
+        kalman_gain * (observation - observation_matrix * predicted_hypothesis.state);
+    const auto covariance = (StateSizeMatrix::Identity() - kalman_gain * observation_matrix) *
+                            predicted_hypothesis.covariance;
 
     return std::make_pair(state, covariance);
   }
 
   double CalculateGamma(const InputHypothesis& input_hypothesis) const {
-    return std::exp(-gamma_) * std::pow(gamma_, input_hypothesis.associated_measurements_indices.size());
+    return std::exp(-gamma_) *
+           std::pow(gamma_, input_hypothesis.associated_measurements_indices.size());
   }
 
-  double CalculateMeasurementPhi(const Measurement& measurement, const Hypothesis& hypothesis) const {
+  double CalculateMeasurementPhi(const Measurement& measurement,
+                                 const Hypothesis& hypothesis) const {
     return NormPdf(measurement.value, calibrations_.observation_matrix * hypothesis.state,
-                   measurement.covariance + calibrations_.observation_matrix * hypothesis.covariance *
+                   measurement.covariance + calibrations_.observation_matrix *
+                                                hypothesis.covariance *
                                                 calibrations_.observation_matrix.transpose());
   }
 
-  double CalculateInputHypothesisPhi(const Hypothesis& predicted_hypothesis, const InputHypothesis& input_hypothesis,
+  double CalculateInputHypothesisPhi(const Hypothesis& predicted_hypothesis,
+                                     const InputHypothesis& input_hypothesis,
                                      const std::vector<Measurement>& measurements) const {
     double phi = 1.0;
     for (const auto det_index : input_hypothesis.associated_measurements_indices)
@@ -260,14 +274,16 @@ class EtGmPhd {
     return 1.0;  // Should be implemented in case of multiple partitioning
   }
 
-  double CalculateDw(const InputHypothesis& input_hypothesis, const std::vector<Measurement>& measurements) const {
-    auto dw = std::accumulate(predicted_hypothesis_.begin(), predicted_hypothesis_.end(), 0.0,
-                              [measurements, input_hypothesis, this](double sum, const Hypothesis& hypothesis) {
-                                const auto gamma = CalculateGamma(input_hypothesis);
-                                const auto phi_w =
-                                    CalculateInputHypothesisPhi(hypothesis, input_hypothesis, measurements);
-                                return sum + (gamma * calibrations_.pd * phi_w * hypothesis.weight);
-                              });
+  double CalculateDw(const InputHypothesis& input_hypothesis,
+                     const std::vector<Measurement>& measurements) const {
+    auto dw = std::accumulate(
+        predicted_hypothesis_.begin(), predicted_hypothesis_.end(), 0.0,
+        [measurements, input_hypothesis, this](double sum, const Hypothesis& hypothesis) {
+          const auto gamma = CalculateGamma(input_hypothesis);
+          const auto phi_w =
+              CalculateInputHypothesisPhi(hypothesis, input_hypothesis, measurements);
+          return sum + (gamma * calibrations_.pd * phi_w * hypothesis.weight);
+        });
 
     if (predicted_hypothesis_.size() == 1u) dw += 1.0;
     return dw;
@@ -276,45 +292,55 @@ class EtGmPhd {
   void Prune(void) {
     // Select elements with weigths over turncation threshold
     std::vector<Hypothesis> pruned_hypothesis;
-    std::copy_if(
-        hypothesis_.begin(), hypothesis_.end(), std::back_inserter(pruned_hypothesis),
-        [this](const Hypothesis& hypothesis) { return hypothesis.weight >= calibrations_.truncation_threshold; });
+    std::copy_if(hypothesis_.begin(), hypothesis_.end(), std::back_inserter(pruned_hypothesis),
+                 [this](const Hypothesis& hypothesis) {
+                   return hypothesis.weight >= calibrations_.truncation_threshold;
+                 });
     std::vector<std::pair<Hypothesis, bool>> pruned_hypothesis_marked;
-    std::transform(pruned_hypothesis.begin(), pruned_hypothesis.end(), std::back_inserter(pruned_hypothesis_marked),
+    std::transform(pruned_hypothesis.begin(), pruned_hypothesis.end(),
+                   std::back_inserter(pruned_hypothesis_marked),
                    [](const Hypothesis& hypothesis) { return std::make_pair(hypothesis, false); });
 
     // Merge hypothesis
     std::vector<Hypothesis> merged_hypothesis;
-    auto non_marked_hypothesis_counter = [](size_t sum, const std::pair<Hypothesis, bool>& markable_hypothesis) {
-      return sum + (markable_hypothesis.second ? 0u : 1u);
-    };
-    auto non_merged_hypothesis_number = std::accumulate(
-        pruned_hypothesis_marked.begin(), pruned_hypothesis_marked.end(), 0u, non_marked_hypothesis_counter);
+    auto non_marked_hypothesis_counter =
+        [](size_t sum, const std::pair<Hypothesis, bool>& markable_hypothesis) {
+          return sum + (markable_hypothesis.second ? 0u : 1u);
+        };
+    auto non_merged_hypothesis_number =
+        std::accumulate(pruned_hypothesis_marked.begin(), pruned_hypothesis_marked.end(), 0u,
+                        non_marked_hypothesis_counter);
 
     while (non_merged_hypothesis_number > 0u) {
-      auto I = pruned_hypothesis_marked | std::views::filter([](const std::pair<Hypothesis, bool>& hypothesis_mark) {
+      auto I = pruned_hypothesis_marked |
+               std::views::filter([](const std::pair<Hypothesis, bool>& hypothesis_mark) {
                  return !hypothesis_mark.second;
                });
 
       // Select maximum weight element
       const auto maximum_weight_hypothesis = *std::max_element(
-          I.begin(), I.end(), [](const std::pair<Hypothesis, bool>& a, const std::pair<Hypothesis, bool>& b) {
+          I.begin(), I.end(),
+          [](const std::pair<Hypothesis, bool>& a, const std::pair<Hypothesis, bool>& b) {
             return a.first.weight < b.first.weight;
           });
 
       // Select hypothesis in merging threshold
-      auto L =
-          pruned_hypothesis_marked |
-          std::views::filter([maximum_weight_hypothesis, this](const std::pair<Hypothesis, bool>& markable_hypothesis) {
-            const auto diff = markable_hypothesis.first.state - maximum_weight_hypothesis.first.state;
-            const auto distance_matrix = diff.transpose() * markable_hypothesis.first.covariance.inverse() * diff;
-            return (distance_matrix(0) < calibrations_.merging_threshold) && !markable_hypothesis.second;
-          });
+      auto L = pruned_hypothesis_marked |
+               std::views::filter([maximum_weight_hypothesis,
+                                   this](const std::pair<Hypothesis, bool>& markable_hypothesis) {
+                 const auto diff =
+                     markable_hypothesis.first.state - maximum_weight_hypothesis.first.state;
+                 const auto distance_matrix =
+                     diff.transpose() * markable_hypothesis.first.covariance.inverse() * diff;
+                 return (distance_matrix(0) < calibrations_.merging_threshold) &&
+                        !markable_hypothesis.second;
+               });
 
       // Calculate new merged element
       const auto merged_weight = std::accumulate(
-          L.begin(), L.end(), 0.0,
-          [](double sum, const std::pair<Hypothesis, bool>& hypothesis) { return sum + hypothesis.first.weight; });
+          L.begin(), L.end(), 0.0, [](double sum, const std::pair<Hypothesis, bool>& hypothesis) {
+            return sum + hypothesis.first.weight;
+          });
 
       StateSizeVector merged_state = StateSizeVector::Zero();
       for (const auto l : L) merged_state += (l.first.weight * l.first.state) / merged_weight;
@@ -325,15 +351,18 @@ class EtGmPhd {
         merged_covariance += (l.first.covariance + diff * diff.transpose()) / merged_weight;
       }
 
-      merged_hypothesis.push_back(Hypothesis(merged_weight, merged_state, merged_covariance, ExtentState()));
+      merged_hypothesis.push_back(
+          Hypothesis(merged_weight, merged_state, merged_covariance, ExtentState()));
       // Remove L from I
-      std::transform(L.begin(), L.end(), L.begin(), [](std::pair<Hypothesis, bool>& markable_hypothesis) {
-        markable_hypothesis.second = true;
-        return markable_hypothesis;
-      });
+      std::transform(L.begin(), L.end(), L.begin(),
+                     [](std::pair<Hypothesis, bool>& markable_hypothesis) {
+                       markable_hypothesis.second = true;
+                       return markable_hypothesis;
+                     });
       //
-      non_merged_hypothesis_number = std::accumulate(pruned_hypothesis_marked.begin(), pruned_hypothesis_marked.end(),
-                                                     0u, non_marked_hypothesis_counter);
+      non_merged_hypothesis_number =
+          std::accumulate(pruned_hypothesis_marked.begin(), pruned_hypothesis_marked.end(), 0u,
+                          non_marked_hypothesis_counter);
     }
     // Set final hypothesis
     hypothesis_ = merged_hypothesis;
@@ -363,7 +392,8 @@ class EtGmPhd {
     // Calculate distances
     for (auto row_index = 0u; row_index < measurements.size(); row_index++) {
       for (auto col_index = row_index; col_index < measurements.size(); col_index++) {
-        const auto distance = CalculateMahalanobisDistance(measurements.at(row_index), measurements.at(col_index));
+        const auto distance =
+            CalculateMahalanobisDistance(measurements.at(row_index), measurements.at(col_index));
         distance_matrix_.at(row_index).at(col_index) = distance;
         distance_matrix_.at(col_index).at(row_index) = distance;
       }
@@ -398,7 +428,8 @@ class EtGmPhd {
     }
   }
 
-  void FindNeihgbours(const uint32_t i, const std::vector<Measurement>& measurements, const uint32_t cell_id) {
+  void FindNeihgbours(const uint32_t i, const std::vector<Measurement>& measurements,
+                      const uint32_t cell_id) {
     for (auto j = 0u; j < measurements.size(); j++) {
       const auto is_different_index = (j != i);
       const auto is_in_maximum_range = (distance_matrix_.at(i).at(j) <= 100.0);
@@ -422,7 +453,8 @@ class EtGmPhd {
   static double NormPdf(const MeasurementSizeVector& z, const MeasurementSizeVector& nu,
                         const MeasurementSizeMatrix& cov) {
     const auto diff = z - nu;
-    const auto c = 1.0 / (std::sqrt(std::pow(std::numbers::pi, measurement_size) * cov.determinant()));
+    const auto c =
+        1.0 / (std::sqrt(std::pow(std::numbers::pi, measurement_size) * cov.determinant()));
     const auto e = std::exp(-0.5 * diff.transpose() * cov.inverse() * diff);
     return c * e;
   }

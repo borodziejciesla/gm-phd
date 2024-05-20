@@ -10,7 +10,7 @@ class GmPhdCvPose : public GmPhd<4u, 2u> {
   virtual ~GmPhdCvPose(void) = default;
 
  protected:
-  Hypothesis PredictHypothesis(const Hypothesis& hypothesis);
+  StateHypothesis PredictHypothesis(const StateHypothesis& hypothesis);
   void PrepareTransitionMatrix(void);
   void PrepareProcessNoiseMatrix(void);
 
