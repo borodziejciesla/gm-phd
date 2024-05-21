@@ -57,10 +57,9 @@ class GmPhd {
     ExtractObjects();
   }
 
-  void MoveSensor(const SensorPoseVector& sensor_pose_delta,
-                  const SensorPoseMatrix& sensor_pose_delta_covariance) {
+  void MoveSensor(const SensorPoseVector& sensor_pose_delta) {
     for (auto& hypothesis : hypothesis_) {
-      hypothesis.MoveSensor(sensor_pose_delta, sensor_pose_delta_covariance);
+      hypothesis.MoveSensor(sensor_pose_delta);
     }
   }
 

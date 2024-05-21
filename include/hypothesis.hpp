@@ -14,9 +14,10 @@ class Hypothesis {
   using Measurement = ValueWithCovariance<measurement_size>;
   using PredictionFunction = std::function<void(Hypothesis<state_size, measurement_size>&, float)>;
 
-  static float pd_;
-  static float ps_;
-  static Matrix<measurement_size, state_size> observation_matrix_;
+  inline static float pd_ = 0.0f;
+  inline static float ps_ = 0.0f;
+  inline static Matrix<measurement_size, state_size> observation_matrix_ =
+      Matrix<measurement_size, state_size>::Zero();
 
   Hypothesis(void) = default;
   Hypothesis(const Hypothesis<state_size, measurement_size>&) = default;
@@ -52,10 +53,7 @@ class Hypothesis {
   void UpdateExisting(void) { /**/
   }
 
-  void MoveSensor(const SensorPoseVector& sensor_pose_delta,
-                  const SensorPoseMatrix& sensor_pose_delta_covariance) {
-    std::ignore = sensor_pose_delta_covariance;
-
+  void MoveSensor(const SensorPoseVector& sensor_pose_delta) {
     const auto dx = state_(0) - sensor_pose_delta(0);
     const auto dy = state_(1) - sensor_pose_delta(1);
     const auto cos_dyaw = std::cos(sensor_pose_delta(2));
@@ -64,11 +62,11 @@ class Hypothesis {
     state_(1) = sin_dyaw * dx + cos_dyaw * dy;
   }
 
-  float Weight(void) const { return weight_; }
+  float& Weight(void) { return weight_; }
 
-  const Vector<state_size>& State(void) const { return state_; }
+  Vector<state_size>& State(void) { return state_; }
 
-  const SquareMatrix<state_size>& Covariance(void) const { return covariance_; }
+  SquareMatrix<state_size>& Covariance(void) { return covariance_; }
 
  private:
   float weight_ = 0.0f;
