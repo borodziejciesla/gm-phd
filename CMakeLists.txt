@@ -20,21 +20,17 @@ include(GNUInstallDirs)
 
 find_package(Eigen3 3.3 REQUIRED NO_MODULE)
 
-add_library(${PROJECT_NAME}
-  src/gm_phd_factory.cpp
-  src/gm_phd_cv_pose.cpp
-  src/et_gm_phd_cv_pose.cpp
-)
+add_library(${PROJECT_NAME} INTERFACE)
 
 target_include_directories(${PROJECT_NAME}
-  PUBLIC
+  INTERFACE
     include
     ${EIGEN_INCLUDE_DIR}
 )
 
-target_link_libraries(${PROJECT_NAME}
-  Eigen3::Eigen
-)
+# target_link_libraries(${PROJECT_NAME}
+#   Eigen3::Eigen
+# )
 
 ###############################################
 ################# Examples ####################
@@ -48,10 +44,10 @@ endif() # BUILD_EXAMPLE
 # ###############################################
 # ################ Unit Tests ###################
 # ###############################################
-# if(BUILD_TESTS)    
-#     project(${TEST_PROJECT_NAME})
+if(BUILD_TESTS)    
+    project(${TEST_PROJECT_NAME})
 
-#     add_subdirectory(tests)    
-#     enable_testing()
-#     add_test(${TEST_PROJECT_NAME} ${TEST_PROJECT_NAME})    
-# endif() #   BUILD_TESTS
+    add_subdirectory(tests)    
+    enable_testing()
+    add_test(${TEST_PROJECT_NAME} ${TEST_PROJECT_NAME})    
+endif() #   BUILD_TESTS
