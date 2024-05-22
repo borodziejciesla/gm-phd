@@ -72,10 +72,10 @@ class GmPhd {
   }
 
  protected:
-  virtual StateHypothesis PredictHypothesis(const StateHypothesis& hypothesis) = 0;
-  virtual void PrepareTransitionMatrix(void) = 0;
-  virtual void PrepareProcessNoiseMatrix(void) = 0;
-  virtual void PredictBirths(void) = 0;
+  // virtual StateHypothesis PredictHypothesis(const StateHypothesis& hypothesis) = 0;
+  // virtual void PrepareTransitionMatrix(void) = 0;
+  // virtual void PrepareProcessNoiseMatrix(void) = 0;
+  // virtual void PredictBirths(void) = 0;
 
   HypothesisVector predicted_hypothesis_;
 
@@ -98,14 +98,14 @@ class GmPhd {
     else
       is_initialized_ = true;
 
-    PredictBirths();
+    // PredictBirths(); // TODO
     PredictExistingTargets();
   }
 
   void PredictExistingTargets(void) {
     // Prepare for prediction
-    PrepareTransitionMatrix();
-    PrepareProcessNoiseMatrix();
+    //PrepareTransitionMatrix(); // TODO
+    //PrepareProcessNoiseMatrix(); // TODO
     // Predict
     std::transform(hypothesis_.begin(), hypothesis_.end(),
                    std::back_inserter(predicted_hypothesis_), [this](StateHypothesis& hypothesis) {
