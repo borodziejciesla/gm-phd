@@ -19,10 +19,10 @@
 
 namespace mot {
 
-template <size_t state_size, size_t measurement_size>
-void PredictHypothesis(Hypothesis<state_size, measurement_size>& hypothesis, float time_delta) {
-  //
-}
+// template <size_t state_size, size_t measurement_size>
+// void PredictHypothesis(Hypothesis<state_size, measurement_size>& hypothesis, float time_delta) {
+//   //
+// }
 
 template <size_t state_size, size_t measurement_size>
 class GmPhd {
@@ -109,7 +109,7 @@ class GmPhd {
     // Predict
     std::transform(hypothesis_.begin(), hypothesis_.end(),
                    std::back_inserter(predicted_hypothesis_), [this](StateHypothesis& hypothesis) {
-                     return hypothesis.PredictState(PredictHypothesis, this.time_delta);
+                     return hypothesis.PredictState(calibrations_.predict_hypothesis, this.time_delta);
                    });
   }
 

@@ -2,14 +2,20 @@
 #define GM_PHD_INCLUDE_GM_PHD_CALIBRATIONS_HPP_
 
 #include <array>
+#include <functional>
 
 #include "aliases.hpp"
+#include "hypothesis.hpp"
 
 namespace mot {
 template <size_t state_size, size_t measurement_size>
 struct GmPhdCalibrations {
   std::array<float, state_size> process_noise_diagonal = {};  // Process noise covariance matrix
 
+  std::function<void(Hypothesis<state_size, measurement_size>&, const float)> predict_hypothesis;
+  std::function<void(Hypothesis<state_size, measurement_size>&)> predict_observation;
+
+  // TODO: remove
   Matrix<measurement_size, state_size> observation_matrix =
       Matrix<measurement_size, state_size>::Zero();  // Observation matrix
   SquareMatrix<measurement_size> measurement_covariance = SquareMatrix<measurement_size>::Zero();
