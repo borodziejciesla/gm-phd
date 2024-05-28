@@ -16,13 +16,11 @@ jobs:
 
     steps:
     - uses: actions/checkout@v2
-    - name: Install g++-13
+    - name: Install g++
       run: |
         sudo apt-get update
         sudo apt install build-essential
-        sudo apt-get install gcc-13 g++-13
-        sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-13 100 --slave /usr/bin/g++ g++ /usr/bin/g++-13 --slave /usr/bin/gcov gcov /usr/bin/gcov-13
-        sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-13 90 --slave /usr/bin/g++ g++ /usr/bin/g++-13 --slave /usr/bin/gcov gcov /usr/bin/gcov-13
+        sudo apt-get install gcc g++
     - name: Install cppcheck and cpplint
       run: |
         sudo apt-get install cppcheck
