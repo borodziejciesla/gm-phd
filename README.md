@@ -1,3 +1,4 @@
+[![UnitTests](https://github.com/borodziejciesla/gm-phd/actions/workflows/cmake.yaml/badge.svg)](https://github.com/borodziejciesla/gm-phd/actions/workflows/cmake.yaml)
 [![CodeFactor](https://www.codefactor.io/repository/github/borodziejciesla/gm-phd/badge)](https://www.codefactor.io/repository/github/borodziejciesla/gm-phd)
 
 # gm-phd
