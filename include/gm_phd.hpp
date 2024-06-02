@@ -41,7 +41,6 @@ class GmPhd {
             ObjectsExtractorFactory<state_size, measurement_size>::CreateExtractor()} {
     StateHypothesis::pd_ = calibrations_.pd;
     StateHypothesis::ps_ = calibrations_.ps;
-    StateHypothesis::observation_matrix_ = calibrations.observation_matrix;
   }
 
   virtual ~GmPhd(void) = default;

@@ -15,11 +15,6 @@ struct GmPhdCalibrations {
   std::function<void(Hypothesis<state_size, measurement_size>&, const float)> predict_hypothesis;
   std::function<void(Hypothesis<state_size, measurement_size>&)> predict_observation;
 
-  // TODO: remove
-  Matrix<measurement_size, state_size> observation_matrix =
-      Matrix<measurement_size, state_size>::Zero();  // Observation matrix
-  SquareMatrix<measurement_size> measurement_covariance = SquareMatrix<measurement_size>::Zero();
-
   float pd = 0.8f;  // Probability of detection
   float ps = 0.8f;  // Probability of survival
   float kappa = 1.0e-9f;
