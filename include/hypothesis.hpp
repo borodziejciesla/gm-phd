@@ -24,6 +24,8 @@ class Hypothesis {
   Hypothesis(Hypothesis<state_size, measurement_size>&&) = default;
   Hypothesis<state_size, measurement_size>& operator=(
       const Hypothesis<state_size, measurement_size>&) = default;
+  Hypothesis<state_size, measurement_size>& operator=(Hypothesis<state_size, measurement_size>&&) =
+      default;
   Hypothesis(const float weight, const Vector<state_size> state,
              const SquareMatrix<state_size> covariance)
       : weight_{weight}, state_{state}, covariance_{covariance} {}
@@ -67,6 +69,8 @@ class Hypothesis {
   Vector<state_size>& State(void) { return state_; }
 
   SquareMatrix<state_size>& Covariance(void) { return covariance_; }
+
+  Vector<measurement_size>& PredictedMeasurement(void) { return predicted_measurement_; }
 
  private:
   float weight_ = 0.0f;

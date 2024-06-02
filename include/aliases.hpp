@@ -1,5 +1,5 @@
-#ifndef INCLUD_ALIASES_HPP_
-#define INCLUD_ALIASES_HPP_
+#ifndef INCLUDE_ALIASES_HPP_
+#define INCLUDE_ALIASES_HPP_
 
 #include <Eigen/Dense>
 
@@ -18,4 +18,4 @@ using SensorPoseVector = Eigen::Vector<float, 3u>;
 using SensorPoseMatrix = Eigen::Matrix<float, 3u, 3u>;
 }  // namespace mot
 
-#endif  //  INCLUD_ALIASES_HPP_
+#endif  //  INCLUDE_ALIASES_HPP_
