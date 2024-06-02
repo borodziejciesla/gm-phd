@@ -20,7 +20,7 @@
 namespace mot {
 
 // template <size_t state_size, size_t measurement_size>
-// void PredictHypothesis(Hypothesis<state_size, measurement_size>& hypothesis, float time_delta) {
+// void PredictHypothesis(Hypothesis<state_size, measurement_size>& hypothesis, float time_delta_) {
 //   //
 // }
 
@@ -79,7 +79,7 @@ class GmPhd {
 
   HypothesisVector predicted_hypothesis_;
 
-  float time_delta = 0.0f;
+  float time_delta_ = 0.0f;
   GmPhdCalibrations<state_size, measurement_size> calibrations_;
   SquareMatrix<state_size> transition_matrix_ = SquareMatrix<state_size>::Zero();
   SquareMatrix<state_size> process_noise_covariance_matrix_ = SquareMatrix<state_size>::Zero();
@@ -87,7 +87,7 @@ class GmPhd {
  private:
   void SetTimestamps(const double timestamp) {
     if (prev_timestamp_ != 0.0) {
-      time_delta = static_cast<float>(timestamp - prev_timestamp_);
+      time_delta_ = static_cast<float>(timestamp - prev_timestamp_);
     }
     prev_timestamp_ = timestamp;
   }
@@ -104,12 +104,13 @@ class GmPhd {
 
   void PredictExistingTargets(void) {
     // Prepare for prediction
-    //PrepareTransitionMatrix(); // TODO
-    //PrepareProcessNoiseMatrix(); // TODO
+    // PrepareTransitionMatrix(); // TODO
+    // PrepareProcessNoiseMatrix(); // TODO
     // Predict
     std::transform(hypothesis_.begin(), hypothesis_.end(),
                    std::back_inserter(predicted_hypothesis_), [this](StateHypothesis& hypothesis) {
-                     return hypothesis.PredictState(calibrations_.predict_hypothesis, this.time_delta);
+                     hypothesis.PredictState(calibrations_.predict_hypothesis, time_delta_);
+                     return hypothesis;
                    });
   }
 
@@ -130,8 +131,8 @@ class GmPhd {
   void Prune() {
     hypothesis_.clear();
     std::copy_if(predicted_hypothesis_.begin(), predicted_hypothesis_.end(),
-                 std::back_inserter(hypothesis_), [this](const StateHypothesis& hypothesis) {
-                   return hypothesis.weight >= calibrations_.truncation_threshold;
+                 std::back_inserter(hypothesis_), [this](StateHypothesis& hypothesis) {
+                   return hypothesis.Weight() >= calibrations_.truncation_threshold;
                  });
   }
 
