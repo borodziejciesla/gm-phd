@@ -18,12 +18,6 @@
 #include "value_with_covariance.hpp"
 
 namespace mot {
-
-// template <size_t state_size, size_t measurement_size>
-// void PredictHypothesis(Hypothesis<state_size, measurement_size>& hypothesis, float time_delta_) {
-//   //
-// }
-
 template <size_t state_size, size_t measurement_size>
 class GmPhd {
  public:
