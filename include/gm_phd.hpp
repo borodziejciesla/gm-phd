@@ -12,6 +12,7 @@
 #include <vector>
 
 #include "aliases.h"
+#include "birth_generator_factory.hpp"
 #include "gm_phd_calibrations.hpp"
 #include "hypothesis.hpp"
 #include "objects_extractor_factory.hpp"
@@ -31,8 +32,9 @@ class GmPhd {
 
   explicit GmPhd(const GmPhdCalibrations<state_size, measurement_size>& calibrations)
       : calibrations_{calibrations},
-        object_extractor_{
-            ObjectsExtractorFactory<state_size, measurement_size>::CreateExtractor()} {
+        object_extractor_{ObjectsExtractorFactory<state_size, measurement_size>::CreateExtractor()},
+        birth_generator_{BirthGeneratorFactory<state_size, measurement_size>::Create(
+            calibrations_.birth_type, calibrations_.birth_calibration)} {
     StateHypothesis::pd_ = calibrations_.pd;
     StateHypothesis::ps_ = calibrations_.ps;
   }
@@ -68,7 +70,11 @@ class GmPhd {
   // virtual StateHypothesis PredictHypothesis(const StateHypothesis& hypothesis) = 0;
   // virtual void PrepareTransitionMatrix(void) = 0;
   // virtual void PrepareProcessNoiseMatrix(void) = 0;
-  // virtual void PredictBirths(void) = 0;
+  void PredictBirths(void) {
+    const auto& predicted_births = birth_generator_->Run();
+    std::copy(predicted_births.begin(), predicted_births.end(),
+              std::back_inserter(predicted_hypothesis_));
+  }
 
   HypothesisVector predicted_hypothesis_;
 
@@ -91,7 +97,7 @@ class GmPhd {
     else
       is_initialized_ = true;
 
-    // PredictBirths(); // TODO
+    PredictBirths();
     PredictExistingTargets();
   }
 
@@ -141,6 +147,7 @@ class GmPhd {
   double prev_timestamp_ = 0.0;
   bool is_initialized_ = false;
   std::unique_ptr<ObjectExtractorInterface<state_size, measurement_size>> object_extractor_;
+  std::unique_ptr<BirthGeneratorInterface<state_size, measurement_size>> birth_generator_;
   ObjectsVector objects_;
   HypothesisVector hypothesis_;
 };
