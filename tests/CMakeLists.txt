@@ -16,6 +16,7 @@ FetchContent_MakeAvailable(googletest)
 # Tests
 ################################
 add_executable(${TEST_PROJECT_NAME}
+    birth_generator_factory.cpp    
     gm_phd_test.cpp
     hypothesis_test.cpp
 )
