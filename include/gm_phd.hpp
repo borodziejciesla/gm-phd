@@ -32,7 +32,8 @@ class GmPhd {
 
   explicit GmPhd(const GmPhdCalibrations<state_size, measurement_size>& calibrations)
       : calibrations_{calibrations},
-        object_extractor_{ObjectsExtractorFactory<state_size, measurement_size>::CreateExtractor()},
+        object_extractor_{ObjectsExtractorFactory<state_size, measurement_size>::Create(
+            calibrations_.extractor_type)},
         birth_generator_{BirthGeneratorFactory<state_size, measurement_size>::Create(
             calibrations_.birth_type, calibrations_.birth_calibration)} {
     StateHypothesis::pd_ = calibrations_.pd;
@@ -67,15 +68,6 @@ class GmPhd {
   }
 
  protected:
-  // virtual StateHypothesis PredictHypothesis(const StateHypothesis& hypothesis) = 0;
-  // virtual void PrepareTransitionMatrix(void) = 0;
-  // virtual void PrepareProcessNoiseMatrix(void) = 0;
-  void PredictBirths(void) {
-    const auto& predicted_births = birth_generator_->Run();
-    std::copy(predicted_births.begin(), predicted_births.end(),
-              std::back_inserter(predicted_hypothesis_));
-  }
-
   HypothesisVector predicted_hypothesis_;
 
   float time_delta_ = 0.0f;
@@ -101,13 +93,16 @@ class GmPhd {
     PredictExistingTargets();
   }
 
+  void PredictBirths(void) {
+    const auto& predicted_births = birth_generator_->Run();
+    std::copy(predicted_births.begin(), predicted_births.end(),
+              std::back_inserter(predicted_hypothesis_));
+  }
+
   void PredictExistingTargets(void) {
-    // Prepare for prediction
-    // PrepareTransitionMatrix(); // TODO
-    // PrepareProcessNoiseMatrix(); // TODO
-    // Predict
     std::transform(hypothesis_.begin(), hypothesis_.end(),
-                   std::back_inserter(predicted_hypothesis_), [this](StateHypothesis& hypothesis) {
+                   std::back_inserter(predicted_hypothesis_),
+                   [this](StateHypothesis& hypothesis) -> StateHypothesis {
                      hypothesis.PredictState(calibrations_.predict_hypothesis, time_delta_);
                      return hypothesis;
                    });

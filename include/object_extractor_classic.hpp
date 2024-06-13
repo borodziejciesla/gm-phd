@@ -13,7 +13,7 @@ class ObjectExtractorClassic : public ObjectExtractorInterface<state_size, measu
   using HypothesisVector = std::vector<StateHypothesis>;
   using ObjectsVector = std::vector<Object>;
 
-  const ObjectsVector& ExtractObjects(const HypothesisVector& hypothesis) {
+  const ObjectsVector& ExtractObjects(const HypothesisVector& hypothesis) override {
     static ObjectsVector objects;
     return objects;
   }

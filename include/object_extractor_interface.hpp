@@ -1,9 +1,10 @@
-#ifndef INCLUDE_OBJECT_EXTRACTOR_HPP_
-#define INCLUDE_OBJECT_EXTRACTOR_HPP_
+#ifndef INCLUDE_OBJECT_EXTRACTOR_INTERFACE_HPP_
+#define INCLUDE_OBJECT_EXTRACTOR_INTERFACE_HPP_
 
 #include <vector>
 
 #include "aliases.hpp"
+#include "hypothesis.hpp"
 
 namespace mot {
 template <size_t state_size, size_t measurement_size>
@@ -19,4 +20,4 @@ class ObjectExtractorInterface {
 };
 }  // namespace mot
 
-#endif  //  INCLUDE_OBJECT_EXTRACTOR_HPP_
+#endif  //  INCLUDE_OBJECT_EXTRACTOR_INTERFACE_HPP_

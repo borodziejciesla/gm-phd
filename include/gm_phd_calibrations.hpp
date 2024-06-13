@@ -11,6 +11,8 @@ namespace mot {
 
 enum class BirthType { Random = 0u };
 
+enum class ExtractorType { Classic = 0u };
+
 struct BirthGeneratorCalibration {
   uint8_t birth_number;
 };
@@ -24,6 +26,8 @@ struct GmPhdCalibrations {
 
   BirthType birth_type = BirthType::Random;
   BirthGeneratorCalibration birth_calibration;
+
+  ExtractorType extractor_type = ExtractorType::Classic;
 
   float pd = 0.8f;  // Probability of detection
   float ps = 0.8f;  // Probability of survival
