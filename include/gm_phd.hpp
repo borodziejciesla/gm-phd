@@ -15,6 +15,7 @@
 #include "birth_generator_factory.hpp"
 #include "gm_phd_calibrations.hpp"
 #include "hypothesis.hpp"
+#include "merge_factory.hpp"
 #include "objects_extractor_factory.hpp"
 #include "value_with_covariance.hpp"
 
@@ -35,7 +36,8 @@ class GmPhd {
         object_extractor_{ObjectsExtractorFactory<state_size, measurement_size>::Create(
             calibrations_.extractor_type)},
         birth_generator_{BirthGeneratorFactory<state_size, measurement_size>::Create(
-            calibrations_.birth_type, calibrations_.birth_calibration)} {
+            calibrations_.birth_type, calibrations_.birth_calibration)},
+        merge_{MergeFactory<state_size, measurement_size>::Create(calibrations_.merge_type)} {
     StateHypothesis::pd_ = calibrations_.pd;
     StateHypothesis::ps_ = calibrations_.ps;
   }
@@ -115,12 +117,31 @@ class GmPhd {
 
   void UpdateExistedHypothesis(void) {
     hypothesis_.clear();
-    for (auto& hypothesis : hypothesis_) {
-      hypothesis.UpdateExisting();
-    }
+    std::transform(predicted_hypothesis_.begin(), predicted_hypothesis_.end(),
+                   std::back_inserter(hypothesis_),
+                   [](const StateHypothesis& h) -> StateHypothesis { return StateHypothesis(); });
   }
 
-  void MakeMeasurementUpdate(const MeasurementsVector& measurements) { hypothesis_.clear(); }
+  void MakeMeasurementUpdate(const MeasurementsVector& measurements) {
+    for (const auto& measurement : measurements) {
+      const auto iteration_update_start = hypothesis_.end();
+      for (const auto& predicted_hypothesis : predicted_hypothesis_) {
+        hypothesis_.push_back(predicted_hypothesis);  // TODO:
+      }
+
+      const auto iteration_sum =
+          std::accumulate(iteration_update_start, hypothesis_.end(), 0.0f,
+                          [](float sum, StateHypothesis& h) -> float { return sum + h.Weight(); });
+      const auto kappa = 0.01f;
+      const auto normalization_value = iteration_sum + kappa;
+
+      // normalize weights
+      std::for_each(iteration_update_start, hypothesis_.end(),
+                    [normalization_value](StateHypothesis& h) -> void {
+                      h.Weight() = h.Weight() / normalization_value;
+                    });
+    }
+  }
 
   void Prune() {
     hypothesis_.clear();
@@ -130,9 +151,7 @@ class GmPhd {
                  });
   }
 
-  void Merge(void) {
-    //
-  }
+  void Merge(void) { merge_->MergeHypothesis(hypothesis_); }
 
   void ExtractObjects(void) {
     objects_.clear();
@@ -143,6 +162,7 @@ class GmPhd {
   bool is_initialized_ = false;
   std::unique_ptr<ObjectExtractorInterface<state_size, measurement_size>> object_extractor_;
   std::unique_ptr<BirthGeneratorInterface<state_size, measurement_size>> birth_generator_;
+  std::unique_ptr<MergeInterface<state_size, measurement_size>> merge_;
   ObjectsVector objects_;
   HypothesisVector hypothesis_;
 };
