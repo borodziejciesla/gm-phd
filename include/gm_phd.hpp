@@ -10,12 +10,13 @@
 #include <tuple>
 #include <vector>
 
+#include "calibrated_object.hpp"
 #include "gm_phd_calibrations.hpp"
 #include "value_with_covariance.hpp"
 
 namespace mot {
 template <size_t state_size, size_t measurement_size>
-class GmPhd {
+class GmPhd : public CalibratedObject {
  public:
   using StateSizeVector = Eigen::Vector<double, state_size>;
   using StateSizeMatrix = Eigen::Matrix<double, state_size, state_size>;

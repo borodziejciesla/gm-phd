@@ -7,9 +7,6 @@ project("gm-phd" VERSION 0.0.1
 set(TEST_PROJECT_NAME ${PROJECT_NAME}_tests)
 set(EXAMPLE_PROJECT_NAME ${PROJECT_NAME}_example)
 
-set(CMAKE_CXX_STANDARD 23)
-set(CMAKE_CXX_STANDARD_REQUIRED ON)
-
 option(BUILD_TESTS "Build tests" ON)
 option(BUILD_EXAMPLE "Build example" OFF)
 
@@ -24,6 +21,12 @@ add_library(${PROJECT_NAME}
   src/gm_phd_cv_pose.cpp
 )
 
+if(CMAKE_VERSION VERSION_LESS "3.25")
+    target_compile_options(${PROJECT_NAME} PUBLIC -std=c++2c)
+else()
+    target_compile_features(${PROJECT_NAME} PUBLIC cxx_std_26)
+endif()
+
 target_include_directories(${PROJECT_NAME}
   PUBLIC
     include
@@ -37,19 +40,15 @@ target_link_libraries(${PROJECT_NAME}
 ###############################################
 ################# Examples ####################
 ###############################################
-if(BUILD_EXAMPLE)
-    project(${EXAMPLE_PROJECT_NAME})
-    
+if(BUILD_EXAMPLE)    
     add_subdirectory(example)
 endif() # BUILD_EXAMPLE
 
 # ###############################################
 # ################ Unit Tests ###################
 # ###############################################
-# if(BUILD_TESTS)    
-#     project(${TEST_PROJECT_NAME})
-
-#     add_subdirectory(tests)    
-#     enable_testing()
-#     add_test(${TEST_PROJECT_NAME} ${TEST_PROJECT_NAME})    
-# endif() #   BUILD_TESTS
+if(BUILD_TESTS)    
+    add_subdirectory(tests)    
+    enable_testing()
+    add_test(${TEST_PROJECT_NAME} ${TEST_PROJECT_NAME})    
+endif() #   BUILD_TESTS
