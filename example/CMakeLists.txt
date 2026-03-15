@@ -9,7 +9,7 @@ else()
 endif()
 
 add_executable(${EXAMPLE_PROJECT_NAME}
-  tg_example.cpp
+  example.cpp
   trajectory_generation.cpp
 )
 

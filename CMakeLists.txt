@@ -16,9 +16,10 @@ option(BUILD_EXAMPLE "Build example" OFF)
 include(GNUInstallDirs)
 
 find_package(Eigen3 3.3 REQUIRED NO_MODULE)
+find_package(TBB REQUIRED)
 
 add_library(${PROJECT_NAME}
-  src/gm_phd_cv_pose.cpp
+  src/cv_motion_model.cpp
 )
 
 if(CMAKE_VERSION VERSION_LESS "3.25")
@@ -35,6 +36,7 @@ target_include_directories(${PROJECT_NAME}
 
 target_link_libraries(${PROJECT_NAME}
   Eigen3::Eigen
+  TBB::tbb
 )
 
 ###############################################
