@@ -7,8 +7,8 @@
 namespace mot {
 class CvMotionModel {
  public:
-  static constexpr auto state_size = 4u;
-  static constexpr auto measurement_size = 2u;
+  static constexpr size_t state_size = 4u;
+  static constexpr size_t measurement_size = 2u;
 
   using StateVector = Vector<state_size>;
   using StateMatrix = Matrix<state_size>;
@@ -21,6 +21,13 @@ class CvMotionModel {
   static void PrepareTransitionMatrix(const double time_delta);
   static void PrepareObservationMatrix(void);
   static void PredictHypothesis(CvHypothesis& hypothesis, const double ps);
+
+  static double& StateX(CvHypothesis& hypothesis);
+  static double& StateY(CvHypothesis& hypothesis);
+  static double& StateYaw(CvHypothesis& hypothesis);
+
+  static const double& MeasurementX(const MeasurementVector& measurement);
+  static const double& MeasurementY(const MeasurementVector& measurement);
 
  private:
   inline static StateMatrix transition_matrix_ = StateMatrix::Zero();

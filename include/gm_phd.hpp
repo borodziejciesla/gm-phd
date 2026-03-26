@@ -4,8 +4,10 @@
 #include <algorithm>
 #include <cmath>
 #include <execution>
+#include <mutex>
 #include <numbers>
 #include <numeric>
+#include <random>
 #include <ranges>
 #include <tuple>
 #include <vector>
@@ -33,6 +35,8 @@ class GmPhd : public CalibratedObject {
     calibrations_["pd"] = std::ref(pd_);
     calibrations_["ps"] = std::ref(ps_);
     calibrations_["kappa"] = std::ref(kappa_);
+    calibrations_["truncation_threshold"] = std::ref(truncation_threshold_);
+    calibrations_["merging_threshold"] = std::ref(merging_threshold_);
   }
 
   GmPhd(const GmPhd&) = delete;
@@ -41,14 +45,23 @@ class GmPhd : public CalibratedObject {
   GmPhd& operator=(GmPhd&&) = delete;
   virtual ~GmPhd(void) = default;
 
+  /**
+   * @brief Run the GmPhd filter
+   *
+   * @param timestamp of the current cycle, used to calculate time delta for prediction
+   * @param measurements collected in the current cycle, used for measurement update
+   */
   void Run(const double timestamp, const std::vector<Measurement>& measurements) {
     SetTimestamps(timestamp);
     // Run Filter
     Predict();
     Update(measurements);
     // Post Processing
-    // Prune();
+    Prune();
     ExtractObjects();
+    // Prepare for next cycle
+    std::swap(working_hypotheses_, output_hypotheses_);
+    output_hypotheses_.clear();
   }
 
   void MoveSensor(const SensorPoseVector& sensor_pose_delta,
@@ -62,22 +75,27 @@ class GmPhd : public CalibratedObject {
       hypothesis.state(1) = sin_dyaw * dx + cos_dyaw * dy;
     };
 
-    std::for_each(std::execution::par, hypotheses_.begin(), hypotheses_.end(), move);
+    std::for_each(std::execution::par, working_hypotheses_.begin(), working_hypotheses_.end(),
+                  move);
   }
 
+  /**
+   * @brief Get the list of extracted objects from the current cycle
+   *
+   * @return const std::vector<Object>& list of tracked objects, where each object contains its
+   * state and covariance. Note that the state is in the sensor frame, and the covariance is in the
+   * state space. The list is updated at the end of each cycle, and can be used for output or
+   * visualization.
+   */
   const std::vector<Object>& GetObjects(void) const { return objects_; }
 
   double GetWeightsSum(void) const {
-    // accumulate
-    auto add = [](double sum, const PhdHypothesis& hypothesis) { return sum + hypothesis.weight; };
-    return std::transform_reduce(std::execution::par, hypotheses_.begin(), hypotheses_.end(), 0.0,
-                                 add);
+    return std::transform_reduce(std::execution::par, working_hypotheses_.begin(),
+                                 working_hypotheses_.end(), 0.0, std::plus<>(),
+                                 [](const PhdHypothesis& hypothesis) { return hypothesis.weight; });
   }
 
  private:
-  double time_delta_ = 0.0;
-  double prev_timestamp_ = 0.0;
-
   void SetTimestamps(const double timestamp) {
     if (prev_timestamp_ != 0.0) {
       time_delta_ = timestamp - prev_timestamp_;
@@ -86,9 +104,22 @@ class GmPhd : public CalibratedObject {
   }
 
   void Predict(void) {
-    // TODO: Check if initialized
-    // PredictBirths();
+    MotionModel::PrepareTransitionMatrix(time_delta_);
+    MotionModel::PrepareObservationMatrix();
+
+    PredictBirths();
     PredictExistingTargets();
+  }
+
+  void PredictBirths(void) {
+    PhdHypothesis birth_hypothesis;
+    birth_hypothesis.weight = 1.0;
+    birth_hypothesis.state = StateVector::Ones();
+    birth_hypothesis.state[1] = 0.0;
+    birth_hypothesis.state[3] = 0.0;
+    birth_hypothesis.covariance = StateMatrix::Identity();
+
+    working_hypotheses_.push_back(birth_hypothesis);
   }
 
   void PredictExistingTargets(void) {
@@ -97,177 +128,211 @@ class GmPhd : public CalibratedObject {
 
     // Predict
     auto predictor = [this](PhdHypothesis& hypothesis) {
-      MotionModel::PredictHypothesis(hypothesis, time_delta_);
+      MotionModel::PredictHypothesis(hypothesis, ps_);
     };
-    std::for_each(std::execution::par, hypotheses_.begin(), hypotheses_.end(), predictor);
+    std::for_each(std::execution::par, working_hypotheses_.begin(), working_hypotheses_.end(),
+                  predictor);
   }
 
   void Update(const std::vector<Measurement>& measurements) {
-    // UpdateExistedHypothesis();
-    // MakeMeasurementUpdate(measurements);
+    UpdateExistedHypothesis();
+    MakeMeasurementUpdate(measurements);
   }
 
-  // void UpdateExistedHypothesis(void) {
-  //   hypotheses_.clear();
-  //   std::transform(predicted_hypotheses_.begin(), predicted_hypotheses_.end(),
-  //                  predicted_hypotheses_.begin(), [this](const PredictedHypothesis& hypothesis) {
-  //                    PredictedHypothesis updated_hypothesis = hypothesis;
+  void UpdateExistedHypothesis(void) {
+    auto update = [this](PhdHypothesis& hypothesis) {
+      hypothesis.weight = (1.0 - pd_) * hypothesis.predicted_weight;
+      hypothesis.state = hypothesis.predicted_state;
+      hypothesis.covariance = hypothesis.predicted_covariance;
+    };
 
-  //                    updated_hypothesis.hypothesis.weight =
-  //                        (1.0 - calibrations_.pd) * hypothesis.hypothesis.weight;
-  //                    updated_hypothesis.hypothesis.state = hypothesis.hypothesis.state;
-  //                    updated_hypothesis.hypothesis.covariance = hypothesis.hypothesis.covariance;
+    std::for_each(std::execution::par, working_hypotheses_.begin(), working_hypotheses_.end(),
+                  update);
+  }
 
-  //                    return updated_hypothesis;
-  //                  });
-  // }
+  void MakeMeasurementUpdate(const std::vector<Measurement>& measurements) {
+    for (const auto& z : measurements) {
+      std::vector<PhdHypothesis> new_hypothseses;
+      new_hypothseses.reserve(working_hypotheses_.size());
 
-  // void MakeMeasurementUpdate(const std::vector<Measurement>& measurements) {
-  //   hypotheses_.clear();
+      auto create_new = [this, &z, &new_hypothseses](PhdHypothesis& hypothesis) {
+        // Measure distance - if too far, skip update
+        const auto distance_x =
+            MotionModel::StateX(hypothesis) - MotionModel::MeasurementX(z.value);
+        const auto distance_y =
+            MotionModel::StateY(hypothesis) - MotionModel::MeasurementY(z.value);
 
-  //   for (const auto& measurement : measurements) {
-  //     std::vector<Hypothesis> new_hypothesis;
-  //     for (const auto& predicted_hypothesis : predicted_hypotheses_) {
-  //       const auto weight = calibrations_.pd * predicted_hypothesis.hypothesis.weight *
-  //                           NormPdf(measurement.value,
-  //                           predicted_hypothesis.predicted_measurement,
-  //                                   predicted_hypothesis.innovation_matrix);
-  //       const auto state = predicted_hypothesis.hypothesis.state +
-  //                          predicted_hypothesis.kalman_gain *
-  //                              (measurement.value - predicted_hypothesis.predicted_measurement);
-  //       const auto covariance = predicted_hypothesis.hypothesis.covariance;
+        if (std::pow(distance_x, 2) + std::pow(distance_y, 2) > 25.0) {
+          return;
+        } else {
+          // Update weight, state and covariance}
+          PhdHypothesis updated_hypothesis;
+          updated_hypothesis.weight =
+              pd_ * hypothesis.predicted_weight *
+              NormPdf<MotionModel::measurement_size>(z.value, hypothesis.predicted_measurement,
+                                                     hypothesis.innovation_matrix);
+          updated_hypothesis.state =
+              hypothesis.predicted_state +
+              hypothesis.kalman_gain * (z.value - hypothesis.predicted_measurement);
+          updated_hypothesis.covariance = hypothesis.predicted_covariance_aposteriori;
 
-  //       new_hypothesis.push_back(Hypothesis(weight, state, covariance));
-  //     }
-  //     // Correct weights
-  //     const auto weights_sum =
-  //         std::accumulate(new_hypothesis.begin(), new_hypothesis.end(), 0.0,
-  //                         [this](double sum, const Hypothesis& curr) {
-  //                           return sum + curr.weight * (1.0 - calibrations_.pd);
-  //                         });
-  //     // Normalize weight
-  //     for (auto& hypothesis : new_hypothesis)
-  //       hypothesis.weight *= ((1.0 - calibrations_.pd) / (calibrations_.kappa + weights_sum));
-  //     // Add new hypothesis to vector
-  //     hypotheses_.insert(hypotheses_.end(), new_hypothesis.begin(), new_hypothesis.end());
-  //   }
-  //   // Add prediced previously
-  //   std::transform(predicted_hypotheses_.begin(), predicted_hypotheses_.end(),
-  //                  std::back_inserter(hypotheses_),
-  //                  [](const PredictedHypothesis& predicted_hypothesis) {
-  //                    return predicted_hypothesis.hypothesis;
-  //                  });
-  // }
+          new_hypothseses.push_back(updated_hypothesis);
+        }
+      };
 
-  // void Prune(void) {
-  //   // Select elements with weigths over turncation threshold
-  //   std::vector<Hypothesis> pruned_hypothesis;
-  //   std::copy_if(hypotheses_.begin(), hypotheses_.end(), std::back_inserter(pruned_hypothesis),
-  //                [this](const Hypothesis& hypothesis) {
-  //                  return hypothesis.weight >= calibrations_.truncation_threshold;
-  //                });
-  //   std::vector<std::pair<Hypothesis, bool>> pruned_hypotheses_marked;
-  //   std::transform(pruned_hypothesis.begin(), pruned_hypothesis.end(),
-  //                  std::back_inserter(pruned_hypotheses_marked),
-  //                  [](const Hypothesis& hypothesis) { return std::make_pair(hypothesis, false);
-  //                  });
+      std::for_each(working_hypotheses_.begin(), working_hypotheses_.end(), create_new);
 
-  //   // Merge hypothesis
-  //   std::vector<Hypothesis> merged_hypothesis;
-  //   auto non_marked_hypotheses_counter =
-  //       [](size_t sum, const std::pair<Hypothesis, bool>& markable_hypothesis) {
-  //         return sum + (markable_hypothesis.second ? 0u : 1u);
-  //       };
-  //   auto non_merged_hypotheses_number =
-  //       std::accumulate(pruned_hypotheses_marked.begin(), pruned_hypotheses_marked.end(), 0u,
-  //                       non_marked_hypotheses_counter);
+      const auto weights_sum =
+          std::transform_reduce(new_hypothseses.begin(), new_hypothseses.end(), 0.0, std::plus<>(),
+                                [](const PhdHypothesis& hypothesis) { return hypothesis.weight; });
+      for (auto& it : new_hypothseses) {
+        it.weight /= weights_sum + kappa_;
+      }
+      // Add new hypotheses to the working list
+      working_hypotheses_.insert(working_hypotheses_.end(), new_hypothseses.begin(),
+                                 new_hypothseses.end());
+    }
+  }
 
-  //   while (non_merged_hypotheses_number > 0u) {
-  //     auto I = pruned_hypotheses_marked |
-  //              std::views::filter([](const std::pair<Hypothesis, bool>& hypotheses_mark) {
-  //                return !hypotheses_mark.second;
-  //              });
+  void Prune(void) {
+    for (auto& l : working_hypotheses_) {
+      if (l.weight > truncation_threshold_) {
+        if (l.is_merged) {
+          continue;
+        }
 
-  //     // Select maximum weight element
-  //     const auto maximum_weight_hypothesis = *std::max_element(
-  //         I.begin(), I.end(),
-  //         [](const std::pair<Hypothesis, bool>& a, const std::pair<Hypothesis, bool>& b) {
-  //           return a.first.weight < b.first.weight;
-  //         });
+        std::vector<PhdHypothesis> merged;
+        merged.reserve(working_hypotheses_.size());
 
-  //     // Select hypothesis in merging threshold
-  //     auto L = pruned_hypotheses_marked |
-  //              std::views::filter([maximum_weight_hypothesis,
-  //                                  this](const std::pair<Hypothesis, bool>& markable_hypothesis)
-  //                                  {
-  //                const auto diff =
-  //                    markable_hypothesis.first.state - maximum_weight_hypothesis.first.state;
-  //                const auto distance_matrix =
-  //                    diff.transpose() * markable_hypothesis.first.covariance.inverse() * diff;
-  //                return (distance_matrix(0) < calibrations_.merging_threshold) &&
-  //                       !markable_hypothesis.second;
-  //              });
+        merged.push_back(l);
 
-  //     // Calculate new merged element
-  //     const auto merged_weight = std::accumulate(
-  //         L.begin(), L.end(), 0.0, [](double sum, const std::pair<Hypothesis, bool>& hypothesis)
-  //         {
-  //           return sum + hypothesis.first.weight;
-  //         });
+        l.is_merged = true;
+        const auto inverse_l_cov = l.covariance.inverse();
 
-  //     StateVector merged_state = StateVector::Zero();
-  //     for (const auto l : L) merged_state += (l.first.weight * l.first.state) / merged_weight;
+        auto is_close = [&l, &inverse_l_cov, this](const PhdHypothesis& n) {
+          const auto diff = n.state - l.state;
+          const auto mahalanobis_distance = diff.transpose() * inverse_l_cov * diff;
+          return mahalanobis_distance < merging_threshold_;
+        };
 
-  //     StateMatrix merged_covariance = StateMatrix::Zero();
-  //     for (const auto l : L) {
-  //       const auto diff = merged_state - l.first.state;
-  //       merged_covariance += (l.first.covariance + diff * diff.transpose()) / merged_weight;
-  //     }
+        for (auto& i : working_hypotheses_) {
+          if (!i.is_merged && is_close(i)) {
+            i.is_merged = true;
+            merged.push_back(i);
+          }
+        }
 
-  //     merged_hypothesis.push_back(Hypothesis(merged_weight, merged_state, merged_covariance));
-  //     // Remove L from I
-  //     std::transform(L.begin(), L.end(), L.begin(),
-  //                    [](std::pair<Hypothesis, bool>& markable_hypothesis) {
-  //                      markable_hypothesis.second = true;
-  //                      return markable_hypothesis;
-  //                    });
-  //     //
-  //     non_merged_hypotheses_number =
-  //         std::accumulate(pruned_hypotheses_marked.begin(), pruned_hypotheses_marked.end(), 0u,
-  //                         non_marked_hypotheses_counter);
-  //   }
-  //   // Set final hypothesis
-  //   hypotheses_ = merged_hypothesis;
-  // }
+        auto accumulated_hypothesis =
+            std::accumulate(merged.begin(), merged.end(), PhdHypothesis{},
+                            [](const PhdHypothesis& acc, const PhdHypothesis& n) {
+                              PhdHypothesis merged = acc;
+                              merged.weight += n.weight;
+                              merged.state += n.weight * n.state;
+                              return merged;
+                            });
+        if (accumulated_hypothesis.weight > 0.0) {
+          accumulated_hypothesis.state /= accumulated_hypothesis.weight;
+        }
+        accumulated_hypothesis = std::ranges::fold_left(
+            merged, accumulated_hypothesis, [](const PhdHypothesis& acc, const PhdHypothesis& n) {
+              PhdHypothesis sum = acc;
+              const auto diff = n.state - acc.state;
+              sum.covariance +=
+                  (n.weight / acc.weight) * (n.covariance + (diff) * (diff).transpose());
+              return sum;
+            });
+        output_hypotheses_.push_back(accumulated_hypothesis);
+      }
+    }
+
+    // auto truncated_hypotheses = working_hypotheses_ |
+    //                             std::views::filter([this](const PhdHypothesis& n) {
+    //                               return n.weight > truncation_threshold_;
+    //                             }) |
+    //                             std::ranges::to<std::vector<PhdHypothesis>>();
+
+    // auto merge = [&truncated_hypotheses, this](PhdHypothesis& h) {
+    //   // Select close hypotheses for merging based on Mahalanobis distance
+    //   h.is_merged = true;  // Mark the current hypothesis as merged to avoid self-merging
+    //   const auto inverse_h_cov = h.covariance.inverse();
+
+    //   auto is_close = [&h, &inverse_h_cov, this](const PhdHypothesis& n) {
+    //     if (n.is_merged) {
+    //       return false;
+    //     }
+    //     const auto diff = n.state - h.state;
+    //     const auto mahalanobis_distance = diff.transpose() * inverse_h_cov * diff;
+
+    //     if (mahalanobis_distance < merging_threshold_) {
+    //       n.is_merged = true;  // Mark the close hypothesis as merged to avoid multiple merging
+    //     }
+    //     return n.is_merged;  // Return true if the hypothesis is close and not yet merged, false
+    //                          // otherwise
+    //   };
+
+    //   auto close_hypothesis = truncated_hypotheses | std::views::filter(is_close) |
+    //                           std::ranges::to<std::vector<PhdHypothesis>>();
+
+    //   // Calculate the merged hypothesis by weighted averaging
+    //   auto accumulated_hypothesis = std::ranges::fold_left(
+    //       close_hypothesis, PhdHypothesis{}, [](const PhdHypothesis& acc, const PhdHypothesis& n)
+    //       {
+    //         PhdHypothesis merged = acc;
+    //         merged.weight += n.weight;
+    //         merged.state += n.weight * n.state;
+    //         return merged;
+    //       });
+    //   // Normalize the merged state by the total weight
+    //   if (accumulated_hypothesis.weight > 0.0) {
+    //     accumulated_hypothesis.state /= accumulated_hypothesis.weight;
+    //   }
+    //   // Calculate merged covariance
+    //   accumulated_hypothesis = std::ranges::fold_left(
+    //       close_hypothesis, accumulated_hypothesis,
+    //       [](const PhdHypothesis& acc, const PhdHypothesis& n) {
+    //         PhdHypothesis merged = acc;
+    //         const auto diff = n.state - acc.state;
+    //         merged.covariance += n.weight * (n.covariance + (diff) * (diff).transpose());
+    //         return merged;
+    //       });
+    //   // Normalize the merged covariance by the total weight
+    //   if (accumulated_hypothesis.weight > 0.0) {
+    //     accumulated_hypothesis.covariance /= accumulated_hypothesis.weight;
+    //   }
+    //   // Add the merged hypothesis to the output list
+    //   this->output_hypotheses_.push_back(accumulated_hypothesis);
+    // };
+
+    // std::for_each(truncated_hypotheses.begin(), truncated_hypotheses.end(), merge);
+  }
 
   void ExtractObjects(void) {
     objects_.clear();
-    for (const auto& hypothesis : hypotheses_) {
+    for (const auto& hypothesis : output_hypotheses_) {
       if (hypothesis.weight > 0.5) {
         objects_.push_back({hypothesis.state, hypothesis.covariance});
       }
     }
   }
 
-  bool is_initialized_ = false;
-  std::vector<Object> objects_;
-  std::vector<PhdHypothesis> hypotheses_;
+  double time_delta_ = 0.0;
+  double prev_timestamp_ = 0.0;
 
-  // calibrations
-  std::array<double, MotionModel::state_size> process_noise_diagonal =
-      {};  // Process noise covariance matrix
+  std::vector<Object>
+      objects_;  // List of extracted objects from the current cycle, to be used for output
+  std::vector<PhdHypothesis>
+      working_hypotheses_;                        // Hypotheses being processed in the current cycle
+  std::vector<PhdHypothesis> output_hypotheses_;  // Hypotheses generated from the current cycle, to
+                                                  // be used in the next cycle
 
-  Eigen::Matrix<double, MotionModel::measurement_size, MotionModel::state_size>
-      observation_matrix;  // Observation matrix
-  Eigen::Matrix<double, MotionModel::measurement_size, MotionModel::measurement_size>
-      measurement_covariance;
+  std::mutex push_mutex_;
 
-  double pd_ = 0.8;  // Probability of detection
-  double ps_ = 0.8;  // Probability of survival
-  double kappa_ = 1.0e-9;
+  double pd_ = 0.8;        // Probability of detection
+  double ps_ = 0.8;        // Probability of survival
+  double kappa_ = 1.0e-9;  // Clutter intensity
 
-  double truncation_threshold = 0.1;
-  double merging_threshold = 3.0;
+  double truncation_threshold_ = 0.1;
+  double merging_threshold_ = 3.0;
 };
 };  //  namespace mot
 

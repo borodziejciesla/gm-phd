@@ -23,6 +23,8 @@ struct Hypothesis {
   MeasurementMatrix innovation_matrix = MeasurementMatrix::Zero();
   KalmanGain kalman_gain = KalmanGain::Zero();
   StateMatrix predicted_covariance_aposteriori = StateMatrix::Zero();
+
+  bool is_merged = false;
 };
 }  // namespace mot
 #endif  //  GM_PHD_INCLUDE_HYPOTHESIS_HPP_

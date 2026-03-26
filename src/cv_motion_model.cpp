@@ -1,5 +1,7 @@
 #include "cv_motion_model.hpp"
 
+#include <cmath>
+
 namespace mot {
 void CvMotionModel::PrepareTransitionMatrix(const double time_delta) {
   transition_matrix_(0u, 0u) = 1.0;
@@ -41,5 +43,23 @@ void CvMotionModel::PredictHypothesis(CvHypothesis& hypothesis, const double ps)
   hypothesis.predicted_covariance_aposteriori =
       (StateMatrix::Identity() - hypothesis.kalman_gain * observation_matrix_) *
       hypothesis.predicted_covariance;
+}
+
+double& CvMotionModel::StateX(CvHypothesis& hypothesis) { return hypothesis.state(0); }
+
+double& CvMotionModel::StateY(CvHypothesis& hypothesis) { return hypothesis.state(2); }
+
+double& CvMotionModel::StateYaw(CvHypothesis& hypothesis) {
+  static double yaw = 0.0;
+  yaw = std::atan2(hypothesis.state(3), hypothesis.state(1));
+  return yaw;
+}
+
+const double& CvMotionModel::MeasurementX(const MeasurementVector& measurement) {
+  return measurement(0);
+}
+
+const double& CvMotionModel::MeasurementY(const MeasurementVector& measurement) {
+  return measurement(1);
 }
 }  // namespace mot
