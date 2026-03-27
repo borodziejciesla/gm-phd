@@ -17,7 +17,7 @@
 #include "hypothesis.hpp"
 
 namespace mot {
-template <typename MotionModel>
+template <typename MotionModel, typename BirthModelType>
 class GmPhd : public CalibratedObject {
  public:
   using StateVector = MotionModel::StateVector;
@@ -96,6 +96,11 @@ class GmPhd : public CalibratedObject {
   }
 
  private:
+  /**
+   * @brief Set the Timestamps object
+   *
+   * @param timestamp
+   */
   void SetTimestamps(const double timestamp) {
     if (prev_timestamp_ != 0.0) {
       time_delta_ = timestamp - prev_timestamp_;
@@ -103,6 +108,19 @@ class GmPhd : public CalibratedObject {
     prev_timestamp_ = timestamp;
   }
 
+  /**
+   * @brief Predict the next state of the system
+   *
+   * The prediction step consists of two parts: predicting the birth of new targets and predicting
+   * the state of existing targets. The prediction of existing targets is done in parallel using the
+   * motion model, which should be implemented by defining the PrepareTransitionMatrix,
+   * PrepareObservationMatrix and PredictHypothesis methods. The PrepareTransitionMatrix and
+   * PrepareObservationMatrix methods are responsible for preparing the transition and observation
+   * matrices based on the current time delta, while the PredictHypothesis method is responsible for
+   * predicting the next state of a given hypothesis based on the motion model and the probability
+   * of survival. The predicted hypotheses are stored in the working list of hypotheses, which will
+   * be used for the measurement update step.
+   */
   void Predict(void) {
     MotionModel::PrepareTransitionMatrix(time_delta_);
     MotionModel::PrepareObservationMatrix();
@@ -111,17 +129,36 @@ class GmPhd : public CalibratedObject {
     PredictExistingTargets();
   }
 
+  /**
+   * @brief Predict the birth of new targets
+   *
+   * The birth model is responsible for generating new hypotheses based on the current measurements
+   * and the predefined birth model. The predicted birth hypotheses are added to the working list of
+   * hypotheses, and will be processed in the next steps of the filter. The birth model can be
+   * customized by implementing the BirthModelType interface, which requires
+   * defining the PredictBirthHypothesis and PredictBirthHypothesesCount methods. The former should
+   * return a single birth hypothesis, while the latter should return the number of birth hypotheses
+   * to be generated in each cycle.
+   */
   void PredictBirths(void) {
-    PhdHypothesis birth_hypothesis;
-    birth_hypothesis.weight = 1.0;
-    birth_hypothesis.state = StateVector::Ones();
-    birth_hypothesis.state[1] = 0.0;
-    birth_hypothesis.state[3] = 0.0;
-    birth_hypothesis.covariance = StateMatrix::Identity();
-
-    working_hypotheses_.push_back(birth_hypothesis);
+    const auto birth_hypotheses = birth_model_.PreparedictBirthHypotheses();
+    working_hypotheses_.insert(working_hypotheses_.end(), birth_hypotheses.begin(),
+                               birth_hypotheses.end());
   }
 
+  /**
+   * @brief Predict the state of existing targets
+   *
+   * The prediction of existing targets is done in parallel using the motion
+   * model, which should be implemented by defining the PrepareTransitionMatrix,
+   * PrepareObservationMatrix and PredictHypothesis methods. The
+   * PrepareTransitionMatrix and PrepareObservationMatrix methods are
+   * responsible for preparing the transition and observation matrices based on the current time
+   * delta, while the PredictHypothesis method is responsible for predicting the next state of a
+   * given hypothesis based on the motion model and the probability of survival. The predicted
+   * hypotheses are stored in the working list of hypotheses, which will be used for the measurement
+   * update step.
+   */
   void PredictExistingTargets(void) {
     // Prepare for prediction
     MotionModel::PrepareTransitionMatrix(time_delta_);
@@ -134,11 +171,30 @@ class GmPhd : public CalibratedObject {
                   predictor);
   }
 
+  /**
+   * @brief Update the hypotheses based on the measurements
+   *
+   * The update step consists of two parts: updating the weights, states and covariances of existing
+   * hypotheses, and creating new hypotheses based on the measurements. The updating of existing
+   * hypotheses is done in parallel using the measurement model, which should be implemented by
+   * defining the MakeMeasurementUpdate method. The creation of new hypotheses is done by
+   * implementing the BirthModelType interface, which requires defining the PredictBirthHypothesis
+   * and PredictBirthHypothesesCount methods.
+   */
   void Update(const std::vector<Measurement>& measurements) {
     UpdateExistedHypothesis();
     MakeMeasurementUpdate(measurements);
   }
 
+  /**
+   * @brief Update the weights, states and covariances of existing hypotheses based on the predicted
+   * values and the probability of detection. The weights are updated by multiplying the predicted
+   * weight by the probability of missed detection (1 - pd), while the states and covariances are
+   * updated by copying the predicted state and covariance. This step is done in parallel using the
+   * standard library's parallel algorithms, which allows for efficient processing of a large
+   * number of hypotheses. The updated hypotheses are stored in the working list of hypotheses,
+   * which will be used for the measurement update step.
+   */
   void UpdateExistedHypothesis(void) {
     auto update = [this](PhdHypothesis& hypothesis) {
       hypothesis.weight = (1.0 - pd_) * hypothesis.predicted_weight;
@@ -150,6 +206,14 @@ class GmPhd : public CalibratedObject {
                   update);
   }
 
+  /**
+   * @brief Update the hypotheses based on the measurements
+   *
+   * The measurement update step consists of updating the weights, states and covariances of
+   * existing hypotheses based on the predicted values and the probability of detection. The updated
+   * hypotheses are stored in the working list of hypotheses, which will be used for the measurement
+   * update step.
+   */
   void MakeMeasurementUpdate(const std::vector<Measurement>& measurements) {
     for (const auto& z : measurements) {
       std::vector<PhdHypothesis> new_hypothseses;
@@ -194,15 +258,22 @@ class GmPhd : public CalibratedObject {
     }
   }
 
+  /**
+   * @brief Prune the hypotheses
+   *
+   * The pruning step consists of merging close hypotheses and removing those with low weights.
+   */
   void Prune(void) {
+    std::vector<PhdHypothesis> merged;
+    merged.reserve(working_hypotheses_.size());
+
     for (auto& l : working_hypotheses_) {
+      merged.clear();
+
       if (l.weight > truncation_threshold_) {
         if (l.is_merged) {
           continue;
         }
-
-        std::vector<PhdHypothesis> merged;
-        merged.reserve(working_hypotheses_.size());
 
         merged.push_back(l);
 
@@ -244,68 +315,18 @@ class GmPhd : public CalibratedObject {
         output_hypotheses_.push_back(accumulated_hypothesis);
       }
     }
-
-    // auto truncated_hypotheses = working_hypotheses_ |
-    //                             std::views::filter([this](const PhdHypothesis& n) {
-    //                               return n.weight > truncation_threshold_;
-    //                             }) |
-    //                             std::ranges::to<std::vector<PhdHypothesis>>();
-
-    // auto merge = [&truncated_hypotheses, this](PhdHypothesis& h) {
-    //   // Select close hypotheses for merging based on Mahalanobis distance
-    //   h.is_merged = true;  // Mark the current hypothesis as merged to avoid self-merging
-    //   const auto inverse_h_cov = h.covariance.inverse();
-
-    //   auto is_close = [&h, &inverse_h_cov, this](const PhdHypothesis& n) {
-    //     if (n.is_merged) {
-    //       return false;
-    //     }
-    //     const auto diff = n.state - h.state;
-    //     const auto mahalanobis_distance = diff.transpose() * inverse_h_cov * diff;
-
-    //     if (mahalanobis_distance < merging_threshold_) {
-    //       n.is_merged = true;  // Mark the close hypothesis as merged to avoid multiple merging
-    //     }
-    //     return n.is_merged;  // Return true if the hypothesis is close and not yet merged, false
-    //                          // otherwise
-    //   };
-
-    //   auto close_hypothesis = truncated_hypotheses | std::views::filter(is_close) |
-    //                           std::ranges::to<std::vector<PhdHypothesis>>();
-
-    //   // Calculate the merged hypothesis by weighted averaging
-    //   auto accumulated_hypothesis = std::ranges::fold_left(
-    //       close_hypothesis, PhdHypothesis{}, [](const PhdHypothesis& acc, const PhdHypothesis& n)
-    //       {
-    //         PhdHypothesis merged = acc;
-    //         merged.weight += n.weight;
-    //         merged.state += n.weight * n.state;
-    //         return merged;
-    //       });
-    //   // Normalize the merged state by the total weight
-    //   if (accumulated_hypothesis.weight > 0.0) {
-    //     accumulated_hypothesis.state /= accumulated_hypothesis.weight;
-    //   }
-    //   // Calculate merged covariance
-    //   accumulated_hypothesis = std::ranges::fold_left(
-    //       close_hypothesis, accumulated_hypothesis,
-    //       [](const PhdHypothesis& acc, const PhdHypothesis& n) {
-    //         PhdHypothesis merged = acc;
-    //         const auto diff = n.state - acc.state;
-    //         merged.covariance += n.weight * (n.covariance + (diff) * (diff).transpose());
-    //         return merged;
-    //       });
-    //   // Normalize the merged covariance by the total weight
-    //   if (accumulated_hypothesis.weight > 0.0) {
-    //     accumulated_hypothesis.covariance /= accumulated_hypothesis.weight;
-    //   }
-    //   // Add the merged hypothesis to the output list
-    //   this->output_hypotheses_.push_back(accumulated_hypothesis);
-    // };
-
-    // std::for_each(truncated_hypotheses.begin(), truncated_hypotheses.end(), merge);
   }
 
+  /**
+   * @brief Extract the list of objects from the current hypotheses
+   *
+   * The extraction step consists of selecting the hypotheses with weights above a certain threshold
+   * and extracting their states and covariances as the list of tracked objects. The extracted
+   * objects are stored in the objects_ member variable, which can be used for output or
+   * visualization. The state of each object is in the sensor frame, and the covariance is in the
+   * state space. The extraction step is done at the end of each cycle, after the prediction and
+   * update steps, and before preparing for the next cycle.
+   */
   void ExtractObjects(void) {
     objects_.clear();
     for (const auto& hypothesis : output_hypotheses_) {
@@ -315,24 +336,32 @@ class GmPhd : public CalibratedObject {
     }
   }
 
-  double time_delta_ = 0.0;
-  double prev_timestamp_ = 0.0;
+  double time_delta_ =
+      0.0;  ///< [s] Time delta between the current and previous cycle, used for prediction
+  double prev_timestamp_ =
+      0.0;  ///< [s] Timestamp of the previous cycle, used to calculate time delta
 
   std::vector<Object>
-      objects_;  // List of extracted objects from the current cycle, to be used for output
+      objects_;  ///< [N/A] List of extracted objects from the current cycle, to be used for output
   std::vector<PhdHypothesis>
-      working_hypotheses_;                        // Hypotheses being processed in the current cycle
-  std::vector<PhdHypothesis> output_hypotheses_;  // Hypotheses generated from the current cycle, to
-                                                  // be used in the next cycle
+      working_hypotheses_;  ///< [N/A] Hypotheses being processed in the current cycle
+  std::vector<PhdHypothesis> output_hypotheses_;  ///< [N/A] Hypotheses generated from the current
+                                                  ///< cycle, to be used in the next cycle
 
-  std::mutex push_mutex_;
+  BirthModelType birth_model_{};  ///< [N/A] Birth model, responsible for generating new hypotheses
+                                  ///< based on the current measurements
 
-  double pd_ = 0.8;        // Probability of detection
-  double ps_ = 0.8;        // Probability of survival
-  double kappa_ = 1.0e-9;  // Clutter intensity
+  std::mutex push_mutex_;  ///< [N/A] Mutex for synchronizing access to the working list of
+                           ///< hypotheses during parallel processing
 
-  double truncation_threshold_ = 0.1;
-  double merging_threshold_ = 3.0;
+  double pd_ = 0.8;        ///< [-] Probability of detection
+  double ps_ = 0.8;        ///< [-] Probability of survival
+  double kappa_ = 1.0e-9;  ///< [-] Clutter intensity
+
+  double truncation_threshold_ =
+      0.1;  ///< [-] Threshold for pruning hypotheses based on their weights
+  double merging_threshold_ =
+      3.0;  ///< [-] Threshold for merging hypotheses based on their Mahalanobis distance
 };
 };  //  namespace mot
 
