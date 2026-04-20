@@ -17,6 +17,31 @@
 #include "hypothesis.hpp"
 
 namespace mot {
+/**
+ * @brief Gaussian Mixture Probability Hypothesis Density (GmPhd) filter for
+ * multi-object tracking. The GmPhd filter is a recursive Bayesian filter that
+ * estimates the number and states of multiple targets in a given area based on
+ * noisy measurements. The filter maintains a set of hypotheses, where each
+ * hypothesis represents a potential target with its state, covariance and
+ * weight. The filter consists of three main steps: prediction, update and
+ * pruning. In the prediction step, the filter predicts the next state of the
+ * system based on the motion model and the probability of survival. In the
+ * update step, the filter updates the weights, states and covariances of the
+ * hypotheses based on the measurements and the probability of detection. In the
+ * pruning step, the filter merges close hypotheses and removes those with low
+ * weights. The GmPhd filter can be used for various applications, such as radar
+ * tracking, video surveillance and autonomous driving, where multiple targets
+ * need to be tracked simultaneously in a noisy environment.
+ *
+ * @tparam MotionModel - The motion model used for predicting the state of the
+ * targets. The motion model should define the state vector, state matrix,
+ * measurement vector and measurement matrix, as well as the
+ * PrepareTransitionMatrix, PrepareObservationMatrix and PredictHypothesis methods
+ * for predicting the next state of a given hypothesis based on the motion model
+ * and the probability of survival.
+ * @tparam BirthModelType - The birth model used for generating new hypotheses
+ * based on the current measurements.
+ */
 template <typename MotionModel, typename BirthModelType>
 class GmPhd : public CalibratedObject {
  public:
@@ -31,6 +56,9 @@ class GmPhd : public CalibratedObject {
   using PhdHypothesis = Hypothesis<MotionModel::state_size, MotionModel::measurement_size>;
 
  public:
+  /**
+   * @brief Construct a new Gm Phd object
+   */
   GmPhd() : CalibratedObject() {
     calibrations_["pd"] = std::ref(pd_);
     calibrations_["ps"] = std::ref(ps_);
