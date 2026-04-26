@@ -8,7 +8,7 @@ class BirthModelDummy : public BirthModelBase<4u, 2u> {
  protected:
   ModelHypothesis PredictBirthHypothesis(void) {
     ModelHypothesis birth_hypothesis;
-    birth_hypothesis.weight = 1.0;
+    birth_hypothesis.weight = 0.5;
     birth_hypothesis.state = StateVector::Ones();
     birth_hypothesis.covariance = StateMatrix::Identity();
 
