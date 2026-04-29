@@ -21,7 +21,8 @@ class BirthModelBase {
   const std::vector<ModelHypothesis>& PreparedictBirthHypotheses(void) {
     birth_hypotheses_.clear();
 
-    for (size_t i = 0u; i < PredictBirthHypothesesCount(); ++i) {
+    const auto birth_hypothesis_number = PredictBirthHypothesesCount();
+    for (size_t i = 0u; i < birth_hypothesis_number; ++i) {
       birth_hypotheses_.emplace_back(std::move(PredictBirthHypothesis()));
     }
 

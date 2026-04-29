@@ -60,6 +60,68 @@ class GmPhdTests : public ::testing::Test {
       }
     }
   }
+
+  void TwoMovingObjectsFilterStationaryGenerateInputs() {
+    // Generate measurements for two objects moving in a straight line with constant velocity in the
+    // sensor frame. The first object starts at (1, 1) and moves with a velocity of (1, 1) m/s,
+    // while the second object starts at (-1, -1) and moves with a velocity of (-1, -1) m/s. The
+    // measurements are generated at a frequency of 10 Hz, and the measurement noise is modeled as a
+    // Gaussian with a covariance of [[1, 0], [0, 1]] m^2. The generated measurements are stored in
+    // the measurements_ member variable, which can be used for testing the
+    // GmPhd filter.
+    constexpr auto velocity_1_x = 1.0;                  // [m/s]
+    constexpr auto velocity_1_y = 1.0;                  // [m/s]
+    constexpr auto velocity_2_x = -1.0;                 // [m/s]
+    constexpr auto velocity_2_y = -1.0;                 // [m/s]
+    constexpr auto measurement_noise_covariance = 1.0;  // [m^2]
+    constexpr auto dt = 0.1;                            // [s]
+    constexpr auto x_1_start = 1.0;                     // [m]
+    constexpr auto y_1_start = 1.0;                     // [m]
+    constexpr auto x_2_start = -1.0;                    // [m]
+    constexpr auto y_2_start = -1.0;                    // [m]
+    constexpr auto num_measurements = 100u;             // [-] Number of measurements to generate
+
+    for (auto i = 0u; i < num_measurements; ++i) {
+      // Object 1
+      Measurement measurement_1;
+      measurement_1.value << x_1_start + velocity_1_x * dt * i, y_1_start + velocity_1_y * dt * i;
+      measurement_1.covariance << measurement_noise_covariance, 0.0, 0.0,
+          measurement_noise_covariance;
+      // Object 2
+      Measurement measurement_2;
+      measurement_2.value << x_2_start + velocity_2_x * dt * i, y_2_start + velocity_2_y * dt * i;
+      measurement_2.covariance << measurement_noise_covariance, 0.0, 0.0,
+          measurement_noise_covariance;
+      // Add measurements to the list
+      measurements_.push_back({measurement_1, measurement_2});
+      timestamps_.push_back(dt * i);
+    }
+  }
+
+  class BirthModelTwoObjects : public mot::BirthModelBase<4u, 2u> {
+   protected:
+    ModelHypothesis PredictBirthHypothesis(void) {
+      ModelHypothesis birth_hypothesis;
+
+      if (!started_) {
+        birth_hypothesis.state = StateVector::Ones();
+      } else {
+        birth_hypothesis.state = -StateVector::Ones();
+      }
+      started_ = true;
+      birth_hypothesis.weight = 0.5;
+      birth_hypothesis.covariance = StateMatrix::Identity();
+
+      return birth_hypothesis;
+    }
+
+    size_t PredictBirthHypothesesCount(void) {
+      started_ = false;
+      return 2u;
+    }
+
+    bool started_ = false;
+  };
 };
 
 TEST_F(GmPhdTests, ConstructorTest) {
@@ -146,4 +208,31 @@ TEST_F(GmPhdTests, OneMovingObjectFilterStationaryTestWithNoise) {
   }
 
   EXPECT_DOUBLE_EQ(std::round(weights_sum / measurements_.size()), 1.0);
+}
+
+TEST_F(GmPhdTests, TwoMovingObjectsFilterStationaryTest) {
+  auto gm_phd_filter = mot::GmPhd<mot::CvMotionModel, BirthModelTwoObjects>();
+
+  TwoMovingObjectsFilterStationaryGenerateInputs();
+
+  for (auto i = 0u; i < measurements_.size(); ++i) {
+    gm_phd_filter.Run(timestamps_[i], measurements_[i]);
+
+    if (i > 4u) {
+      const auto& objects = gm_phd_filter.GetObjects();
+
+      EXPECT_EQ(objects.size(), 2u) << std::string("Failed at index: ") << std::to_string(i);
+      EXPECT_DOUBLE_EQ(std::floor(gm_phd_filter.GetWeightsSum()), 2.0);
+
+      if (objects.size() == 2u) {
+        const auto& object_1 = gm_phd_filter.GetObjects().front();
+        EXPECT_NEAR(object_1.value(0), measurements_[i].front().value(0), 0.2);
+        EXPECT_NEAR(object_1.value(2), measurements_[i].front().value(1), 0.2);
+
+        const auto& object_2 = gm_phd_filter.GetObjects().back();
+        EXPECT_NEAR(object_2.value(0), measurements_[i].back().value(0), 0.2);
+        EXPECT_NEAR(object_2.value(2), measurements_[i].back().value(1), 0.2);
+      }
+    }
+  }
 }
