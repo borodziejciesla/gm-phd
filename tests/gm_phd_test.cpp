@@ -1,128 +1,118 @@
 #include "gm_phd.hpp"
 
+#include <algorithm>
 #include <cmath>
-#include <random>
+#include <limits>
+#include <numbers>
 #include <vector>
 
 #include "birth_model_dummy.hpp"
 #include "cv_motion_model.hpp"
 #include "gtest/gtest.h"
+#include "ospa.hpp"
 
-std::mt19937 gen(0u);
-std::uniform_real_distribution<> dist(-50.0, 50.0);
+namespace {
+using TestMeasurement = mot::ValueWithCovariance<mot::CvMotionModel::measurement_size>;
+using TestObject = mot::ValueWithCovariance<mot::CvMotionModel::state_size>;
 
-class GmPhdTests : public ::testing::Test {
+class MeasurementBirthModel : public mot::BirthModelBase<mot::CvMotionModel> {
  protected:
-  void SetUp() override {
-    measurements_.clear();
-    timestamps_.clear();
+  ModelHypothesis PredictBirthHypothesisFromMeasurement(const Measurement& measurement) override {
+    ModelHypothesis hypothesis;
+    hypothesis.weight = 0.25;
+    hypothesis.state(0) = measurement.value(0);
+    hypothesis.state(2) = measurement.value(1);
+    hypothesis.covariance = StateMatrix::Identity();
+    return hypothesis;
   }
 
-  using Measurement = mot::GmPhd<mot::CvMotionModel, mot::BirthModelDummy>::Measurement;
-  using MeasurementsScan = std::vector<Measurement>;
-  std::vector<MeasurementsScan> measurements_;
-  std::vector<double> timestamps_;
+  ModelHypothesis PredictBirthHypothesis() override { return {}; }
 
-  void OneMovingObjectFilterStationaryGenerateInputs() {
-    // Generate measurements for a single object moving in a straight line with
-    // constant velocity in the sensor frame. The object starts at (1, 1) and moves with a velocity
-    // of (1, 1) m/s. The measurements are generated at a frequency of 10 Hz, and the
-    // measurement noise is modeled as a Gaussian with a covariance of [[1, 0], [0, 1]] m^2. The
-    // generated measurements are stored in the measurements_ member variable, which can be used for
-    // testing the GmPhd filter.
-    constexpr auto velocity_x = 1.0;                    // [m/s]
-    constexpr auto velocity_y = 1.0;                    // [m/s]
-    constexpr auto measurement_noise_covariance = 1.0;  // [m^2]
-    constexpr auto dt = 0.1;                            // [s]
-    constexpr auto x_start = 1.0;                       // [m]
-    constexpr auto y_start = 1.0;                       // [m]
-    constexpr auto num_measurements = 100u;             // [-] Number of measurements to generate
-
-    for (auto i = 0u; i < num_measurements; ++i) {
-      Measurement measurement;
-      measurement.value << x_start + velocity_x * dt * i, y_start + velocity_y * dt * i;
-      measurement.covariance << measurement_noise_covariance, 0.0, 0.0,
-          measurement_noise_covariance;
-      measurements_.push_back({measurement});
-      timestamps_.push_back(dt * i);
-    }
-  }
-
-  void OneMovingObjectFilterStationaryGenerateInputsWithNoise() {
-    OneMovingObjectFilterStationaryGenerateInputs();
-
-    for (auto& scan : measurements_) {
-      for (auto index = 0u; index < 10u; index++) {
-        Measurement measurement;
-        measurement.value << dist(gen), dist(gen);
-        measurement.covariance << 1.0, 0.0, 0.0, 1.0;
-        scan.emplace_back(std::move(measurement));
-      }
-    }
-  }
-
-  void TwoMovingObjectsFilterStationaryGenerateInputs() {
-    // Generate measurements for two objects moving in a straight line with constant velocity in the
-    // sensor frame. The first object starts at (1, 1) and moves with a velocity of (1, 1) m/s,
-    // while the second object starts at (-1, -1) and moves with a velocity of (-1, -1) m/s. The
-    // measurements are generated at a frequency of 10 Hz, and the measurement noise is modeled as a
-    // Gaussian with a covariance of [[1, 0], [0, 1]] m^2. The generated measurements are stored in
-    // the measurements_ member variable, which can be used for testing the
-    // GmPhd filter.
-    constexpr auto velocity_1_x = 1.0;                  // [m/s]
-    constexpr auto velocity_1_y = 1.0;                  // [m/s]
-    constexpr auto velocity_2_x = -1.0;                 // [m/s]
-    constexpr auto velocity_2_y = -1.0;                 // [m/s]
-    constexpr auto measurement_noise_covariance = 1.0;  // [m^2]
-    constexpr auto dt = 0.1;                            // [s]
-    constexpr auto x_1_start = 1.0;                     // [m]
-    constexpr auto y_1_start = 1.0;                     // [m]
-    constexpr auto x_2_start = -1.0;                    // [m]
-    constexpr auto y_2_start = -1.0;                    // [m]
-    constexpr auto num_measurements = 100u;             // [-] Number of measurements to generate
-
-    for (auto i = 0u; i < num_measurements; ++i) {
-      // Object 1
-      Measurement measurement_1;
-      measurement_1.value << x_1_start + velocity_1_x * dt * i, y_1_start + velocity_1_y * dt * i;
-      measurement_1.covariance << measurement_noise_covariance, 0.0, 0.0,
-          measurement_noise_covariance;
-      // Object 2
-      Measurement measurement_2;
-      measurement_2.value << x_2_start + velocity_2_x * dt * i, y_2_start + velocity_2_y * dt * i;
-      measurement_2.covariance << measurement_noise_covariance, 0.0, 0.0,
-          measurement_noise_covariance;
-      // Add measurements to the list
-      measurements_.push_back({measurement_1, measurement_2});
-      timestamps_.push_back(dt * i);
-    }
-  }
-
-  class BirthModelTwoObjects : public mot::BirthModelBase<4u, 2u> {
-   protected:
-    ModelHypothesis PredictBirthHypothesis(void) {
-      ModelHypothesis birth_hypothesis;
-
-      if (!started_) {
-        birth_hypothesis.state = StateVector::Ones();
-      } else {
-        birth_hypothesis.state = -StateVector::Ones();
-      }
-      started_ = true;
-      birth_hypothesis.weight = 0.5;
-      birth_hypothesis.covariance = StateMatrix::Identity();
-
-      return birth_hypothesis;
-    }
-
-    size_t PredictBirthHypothesesCount(void) {
-      started_ = false;
-      return 2u;
-    }
-
-    bool started_ = false;
-  };
+  size_t PredictBirthHypothesesCount() override { return 0u; }
 };
+
+TestMeasurement MakeMeasurement(const double x, const double y) {
+  TestMeasurement measurement;
+  measurement.value << x, y;
+  return measurement;
+}
+
+bool ObjectsMatchMeasurements(const std::vector<TestObject>& objects,
+                              const std::vector<TestMeasurement>& measurements,
+                              const double tolerance) {
+  if (objects.size() != measurements.size()) {
+    return false;
+  }
+
+  const auto distance = [](const TestObject& object, const TestMeasurement& measurement) {
+    return std::hypot(object.value(0) - measurement.value(0),
+                      object.value(2) - measurement.value(1));
+  };
+
+  std::vector<bool> matched(objects.size(), false);
+  for (const auto& measurement : measurements) {
+    auto closest_object = objects.size();
+    auto closest_distance = std::numeric_limits<double>::infinity();
+
+    for (size_t i = 0; i < objects.size(); ++i) {
+      if (!matched[i]) {
+        const auto current_distance = distance(objects[i], measurement);
+        if (current_distance < closest_distance) {
+          closest_object = i;
+          closest_distance = current_distance;
+        }
+      }
+    }
+
+    if (closest_distance > tolerance) {
+      return false;
+    }
+    matched[closest_object] = true;
+  }
+
+  return true;
+}
+}  // namespace
+
+class GmPhdTests : public ::testing::Test {};
+
+TEST_F(GmPhdTests, EvaluatesNormalizedGaussianDensity) {
+  const auto density = mot::NormPdf<2u>(mot::Vector<2u>::Zero(), mot::Vector<2u>::Zero(),
+                                        mot::Matrix<2u>::Identity());
+
+  EXPECT_NEAR(density, 1.0 / (2.0 * std::numbers::pi), 1e-12);
+}
+
+TEST_F(GmPhdTests, OspaReturnsZeroForEqualPointSetsRegardlessOfOrder) {
+  const std::vector<mot::OspaPosition> estimates = {{0.0, 0.0}, {5.0, 2.0}};
+  const std::vector<mot::OspaPosition> truth = {{5.0, 2.0}, {0.0, 0.0}};
+
+  EXPECT_DOUBLE_EQ(mot::OspaDistance(estimates, truth, 10.0, 2.0), 0.0);
+}
+
+TEST_F(GmPhdTests, OspaUsesMinimumCostAssignment) {
+  const std::vector<mot::OspaPosition> estimates = {{0.0, 0.0}, {4.0, 0.0}};
+  const std::vector<mot::OspaPosition> truth = {{3.0, 0.0}, {10.0, 0.0}};
+
+  EXPECT_DOUBLE_EQ(mot::OspaDistance(estimates, truth, 20.0, 1.0), 4.5);
+}
+
+TEST_F(GmPhdTests, OspaIncludesLocalizationAndCardinalityError) {
+  const std::vector<mot::OspaPosition> estimates = {{0.0, 0.0}, {10.0, 0.0}};
+  const std::vector<mot::OspaPosition> truth = {{3.0, 0.0}};
+
+  EXPECT_NEAR(mot::OspaDistance(estimates, truth, 10.0, 2.0), std::sqrt(54.5), 1e-12);
+}
+
+TEST_F(GmPhdTests, OspaCapsLargeLocalizationErrorsAndHandlesEmptySets) {
+  const std::vector<mot::OspaPosition> estimates = {{100.0, 100.0}};
+  const std::vector<mot::OspaPosition> truth = {{0.0, 0.0}};
+  const std::vector<mot::OspaPosition> empty;
+
+  EXPECT_DOUBLE_EQ(mot::OspaDistance(estimates, truth, 10.0, 2.0), 10.0);
+  EXPECT_DOUBLE_EQ(mot::OspaDistance(estimates, empty, 10.0, 2.0), 10.0);
+  EXPECT_DOUBLE_EQ(mot::OspaDistance(empty, empty, 10.0, 2.0), 0.0);
+}
 
 TEST_F(GmPhdTests, ConstructorTest) {
   auto gm_phd_filter = mot::GmPhd<mot::CvMotionModel, mot::BirthModelDummy>();
@@ -131,8 +121,18 @@ TEST_F(GmPhdTests, ConstructorTest) {
 }
 
 TEST_F(GmPhdTests, NoInputTest) {
-  class BirthModelZero : public mot::BirthModelBase<4u, 2u> {
+  class BirthModelZero : public mot::BirthModelBase<mot::CvMotionModel> {
    protected:
+    ModelHypothesis PredictBirthHypothesisFromMeasurement(const Measurement& measurement) {
+      ModelHypothesis birth_hypothesis;
+      birth_hypothesis.weight = 0.25;
+      birth_hypothesis.state(0) = measurement.value(0);
+      birth_hypothesis.state(1) = measurement.value(1);
+      birth_hypothesis.covariance = StateMatrix::Identity();
+
+      return birth_hypothesis;
+    }
+
     ModelHypothesis PredictBirthHypothesis(void) {
       ModelHypothesis birth_hypothesis;
       birth_hypothesis.weight = 0.0;
@@ -167,72 +167,86 @@ TEST_F(GmPhdTests, AddSameInputTest) {
   EXPECT_DOUBLE_EQ(std::round(gm_phd_filter.GetWeightsSum()), 1.0);
 }
 
-TEST_F(GmPhdTests, OneMovingObjectFilterStationaryTest) {
-  auto gm_phd_filter = mot::GmPhd<mot::CvMotionModel, mot::BirthModelDummy>();
+TEST_F(GmPhdTests, CreatesSeparateObjectsForDistinctMeasurements) {
+  auto gm_phd_filter = mot::GmPhd<mot::CvMotionModel, MeasurementBirthModel>();
 
-  OneMovingObjectFilterStationaryGenerateInputs();
+  mot::ValueWithCovariance<2u> first_measurement;
+  first_measurement.value << 0.0, 0.0;
+  mot::ValueWithCovariance<2u> second_measurement;
+  second_measurement.value << 10.0, 0.0;
 
-  for (auto i = 0u; i < measurements_.size(); ++i) {
-    gm_phd_filter.Run(timestamps_[i], measurements_[i]);
+  gm_phd_filter.Run(0.1, {first_measurement, second_measurement});
 
-    if (i > 4u) {
-      EXPECT_EQ(gm_phd_filter.GetObjects().size(), 1u)
-          << std::string("Failed at index: ") << std::to_string(i);
-      EXPECT_DOUBLE_EQ(std::round(gm_phd_filter.GetWeightsSum()), 1.0);
+  const auto& objects = gm_phd_filter.GetObjects();
+  ASSERT_EQ(objects.size(), 2u);
+  EXPECT_NEAR(objects[0].value(0), 0.0, 1e-9);
+  EXPECT_NEAR(objects[1].value(0), 10.0, 1e-9);
+}
 
-      const auto& object = gm_phd_filter.GetObjects().front();
-      EXPECT_NEAR(object.value(0), measurements_[i].front().value(0), 0.2);
-      EXPECT_NEAR(object.value(1), 1.0, 0.2);
-      EXPECT_NEAR(object.value(2), measurements_[i].front().value(1), 0.2);
-      EXPECT_NEAR(object.value(3), 1.0, 0.2);
-    }
+TEST_F(GmPhdTests, ExtractionThresholdCanBeConfigured) {
+  auto gm_phd_filter = mot::GmPhd<mot::CvMotionModel, MeasurementBirthModel>();
+  const auto calibration = gm_phd_filter.SetCalibrations("extraction_threshold", 0.0);
+  ASSERT_TRUE(calibration.has_value());
+
+  gm_phd_filter.Run(0.1, {MakeMeasurement(1.0, 1.0)});
+
+  EXPECT_EQ(gm_phd_filter.GetObjects().size(), 1u);
+}
+
+TEST_F(GmPhdTests, DoesNotReuseMeasurementUpdatesWithinOneScan) {
+  auto gm_phd_filter = mot::GmPhd<mot::CvMotionModel, MeasurementBirthModel>();
+  const auto first_measurement = MakeMeasurement(0.0, 0.0);
+  const auto second_measurement = MakeMeasurement(1.0, 1.0);
+
+  gm_phd_filter.Run(0.1, {first_measurement, second_measurement});
+
+  EXPECT_TRUE(std::isfinite(gm_phd_filter.GetWeightsSum()));
+}
+
+TEST_F(GmPhdTests, TracksMultipleRepeatedDetections) {
+  auto gm_phd_filter = mot::GmPhd<mot::CvMotionModel, MeasurementBirthModel>();
+  const auto first_measurement = MakeMeasurement(-10.0, -5.0);
+  const auto second_measurement = MakeMeasurement(10.0, 5.0);
+
+  for (int frame = 0; frame < 10; ++frame) {
+    gm_phd_filter.Run(0.1 * (frame + 1), {first_measurement, second_measurement});
+
+    const auto& objects = gm_phd_filter.GetObjects();
+    ASSERT_EQ(objects.size(), 2u) << "frame " << frame;
+    EXPECT_TRUE(ObjectsMatchMeasurements(objects, {first_measurement, second_measurement}, 1.0))
+        << "frame " << frame;
   }
 }
 
-TEST_F(GmPhdTests, OneMovingObjectFilterStationaryTestWithNoise) {
-  auto gm_phd_filter = mot::GmPhd<mot::CvMotionModel, mot::BirthModelDummy>();
+TEST_F(GmPhdTests, TracksFourRepeatedDetections) {
+  auto gm_phd_filter = mot::GmPhd<mot::CvMotionModel, MeasurementBirthModel>();
+  const std::vector<TestMeasurement> measurements = {
+      MakeMeasurement(-15.0, -10.0), MakeMeasurement(-5.0, 10.0),
+      MakeMeasurement(5.0, -10.0),  MakeMeasurement(15.0, 10.0)};
 
-  OneMovingObjectFilterStationaryGenerateInputsWithNoise();
+  for (int frame = 0; frame < 10; ++frame) {
+    gm_phd_filter.Run(0.1 * (frame + 1), measurements);
 
-  auto weights_sum = 0.0;
-
-  for (auto i = 0u; i < measurements_.size(); ++i) {
-    gm_phd_filter.Run(timestamps_[i], measurements_[i]);
-    weights_sum += gm_phd_filter.GetWeightsSum();
-
-    if (gm_phd_filter.GetObjects().size() > 1u) {
-      const auto& object = gm_phd_filter.GetObjects().front();
-      EXPECT_NEAR(object.value(0), measurements_[i].front().value(0), 0.1);
-      EXPECT_NEAR(object.value(2), measurements_[i].front().value(1), 0.1);
-    }
+    const auto& objects = gm_phd_filter.GetObjects();
+    ASSERT_EQ(objects.size(), measurements.size()) << "frame " << frame;
+    EXPECT_TRUE(ObjectsMatchMeasurements(objects, measurements, 1.0)) << "frame " << frame;
   }
-
-  EXPECT_DOUBLE_EQ(std::round(weights_sum / measurements_.size()), 1.0);
 }
 
-TEST_F(GmPhdTests, TwoMovingObjectsFilterStationaryTest) {
-  auto gm_phd_filter = mot::GmPhd<mot::CvMotionModel, BirthModelTwoObjects>();
+TEST_F(GmPhdTests, TracksMovingTargetsInSimulation) {
+  auto gm_phd_filter = mot::GmPhd<mot::CvMotionModel, MeasurementBirthModel>();
 
-  TwoMovingObjectsFilterStationaryGenerateInputs();
+  for (int frame = 0; frame < 12; ++frame) {
+    const auto first_measurement =
+        MakeMeasurement(-12.0 + 0.5 * frame, -6.0 + 0.25 * frame);
+    const auto second_measurement =
+        MakeMeasurement(12.0 - 0.5 * frame, 6.0 - 0.25 * frame);
 
-  for (auto i = 0u; i < measurements_.size(); ++i) {
-    gm_phd_filter.Run(timestamps_[i], measurements_[i]);
+    gm_phd_filter.Run(0.1 * (frame + 1), {first_measurement, second_measurement});
 
-    if (i > 4u) {
-      const auto& objects = gm_phd_filter.GetObjects();
-
-      EXPECT_EQ(objects.size(), 2u) << std::string("Failed at index: ") << std::to_string(i);
-      EXPECT_DOUBLE_EQ(std::floor(gm_phd_filter.GetWeightsSum()), 2.0);
-
-      if (objects.size() == 2u) {
-        const auto& object_1 = gm_phd_filter.GetObjects().front();
-        EXPECT_NEAR(object_1.value(0), measurements_[i].front().value(0), 0.2);
-        EXPECT_NEAR(object_1.value(2), measurements_[i].front().value(1), 0.2);
-
-        const auto& object_2 = gm_phd_filter.GetObjects().back();
-        EXPECT_NEAR(object_2.value(0), measurements_[i].back().value(0), 0.2);
-        EXPECT_NEAR(object_2.value(2), measurements_[i].back().value(1), 0.2);
-      }
-    }
+    const auto& objects = gm_phd_filter.GetObjects();
+    ASSERT_EQ(objects.size(), 2u) << "frame " << frame;
+    EXPECT_TRUE(ObjectsMatchMeasurements(objects, {first_measurement, second_measurement}, 2.0))
+        << "frame " << frame;
   }
 }

@@ -40,9 +40,12 @@ void CvMotionModel::PredictHypothesis(CvHypothesis& hypothesis, const double ps)
                            hypothesis.innovation_matrix.inverse();
 
   // Predict covariance aposteriori
+  const auto residual_projection =
+      StateMatrix::Identity() - hypothesis.kalman_gain * observation_matrix_;
   hypothesis.predicted_covariance_aposteriori =
-      (StateMatrix::Identity() - hypothesis.kalman_gain * observation_matrix_) *
-      hypothesis.predicted_covariance;
+      residual_projection * hypothesis.predicted_covariance * residual_projection.transpose() +
+      hypothesis.kalman_gain * observation_noise_covariance_matrix_ *
+          hypothesis.kalman_gain.transpose();
 }
 
 double& CvMotionModel::StateX(CvHypothesis& hypothesis) { return hypothesis.state(0); }

@@ -34,7 +34,8 @@ class CvMotionModel {
  private:
   inline static StateMatrix transition_matrix_ = StateMatrix::Zero();
   inline static StateMatrix process_noise_covariance_matrix_ = StateMatrix::Zero();
-  inline static MeasurementMatrix observation_noise_covariance_matrix_ = MeasurementMatrix::Zero();
+  inline static MeasurementMatrix observation_noise_covariance_matrix_ =
+      1.0e-9 * MeasurementMatrix::Identity();  // Numerical floor for nearly noise-free models.
   inline static Observer observation_matrix_ = Observer::Zero();
 };
 }  // namespace mot

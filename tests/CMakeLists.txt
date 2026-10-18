@@ -16,6 +16,7 @@ FetchContent_MakeAvailable(googletest)
 # Tests
 ################################
 add_executable(${TEST_PROJECT_NAME}
+    birth_model_base_test.cpp
     calibrated_object_test.cpp
     gm_phd_test.cpp
 

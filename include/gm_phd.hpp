@@ -65,6 +65,7 @@ class GmPhd : public CalibratedObject {
     calibrations_["kappa"] = std::ref(kappa_);
     calibrations_["truncation_threshold"] = std::ref(truncation_threshold_);
     calibrations_["merging_threshold"] = std::ref(merging_threshold_);
+    calibrations_["extraction_threshold"] = std::ref(extraction_threshold_);
   }
 
   GmPhd(const GmPhd&) = delete;
@@ -77,12 +78,12 @@ class GmPhd : public CalibratedObject {
    * @brief Run the GmPhd filter
    *
    * @param timestamp of the current cycle, used to calculate time delta for prediction
-   * @param measurements collected in the current cycle, used for measurement update
+   * @param measurements collected in the current cycle, used for both birth prediction and update
    */
   void Run(const double timestamp, const std::vector<Measurement>& measurements) {
     SetTimestamps(timestamp);
     // Run Filter
-    Predict();
+    Predict(measurements);
     Update(measurements);
     // Post Processing
     Prune();
@@ -149,11 +150,11 @@ class GmPhd : public CalibratedObject {
    * of survival. The predicted hypotheses are stored in the working list of hypotheses, which will
    * be used for the measurement update step.
    */
-  void Predict(void) {
+  void Predict(const std::vector<Measurement>& measurements) {
     MotionModel::PrepareTransitionMatrix(time_delta_);
     MotionModel::PrepareObservationMatrix();
 
-    PredictBirths();
+    PredictBirths(measurements);
     PredictExistingTargets();
   }
 
@@ -168,8 +169,8 @@ class GmPhd : public CalibratedObject {
    * return a single birth hypothesis, while the latter should return the number of birth hypotheses
    * to be generated in each cycle.
    */
-  void PredictBirths(void) {
-    const auto birth_hypotheses = birth_model_.PreparedictBirthHypotheses();
+  void PredictBirths(const std::vector<Measurement>& measurements) {
+    const auto birth_hypotheses = birth_model_.PreparedictBirthHypotheses(measurements);
     working_hypotheses_.insert(working_hypotheses_.end(), birth_hypotheses.begin(),
                                birth_hypotheses.end());
   }
@@ -243,9 +244,7 @@ class GmPhd : public CalibratedObject {
    * update step.
    */
   void MakeMeasurementUpdate(const std::vector<Measurement>& measurements) {
-    const auto working_hypothesis_begin = working_hypotheses_.begin();
-    const auto working_hypothesis_end = working_hypotheses_.end();
-
+    std::vector<PhdHypothesis> measurement_hypotheses;
     for (const auto& z : measurements) {
       std::vector<PhdHypothesis> new_hypothseses;
       new_hypothseses.reserve(working_hypotheses_.size());
@@ -261,48 +260,33 @@ class GmPhd : public CalibratedObject {
           return;
         } else {
           // Update weight, state and covariance}
-          PhdHypothesis updated_hypothesis{hypothesis};
-          updated_hypothesis.predicted_measurement =
-              MotionModel::GetObservationMatrix() * hypothesis.predicted_state;
-          updated_hypothesis.innovation_matrix =
-              MotionModel::GetObservationMatrix() * hypothesis.predicted_covariance *
-                  MotionModel::GetObservationMatrix().transpose() +
-              z.covariance;
-          updated_hypothesis.kalman_gain = hypothesis.predicted_covariance *
-                                           MotionModel::GetObservationMatrix().transpose() *
-                                           updated_hypothesis.innovation_matrix.inverse();
-          updated_hypothesis.predicted_covariance_aposteriori =
-              (StateMatrix::Identity() -
-               updated_hypothesis.kalman_gain * MotionModel::GetObservationMatrix()) *
-              hypothesis.predicted_covariance;
-
-          updated_hypothesis.weight = pd_ * hypothesis.predicted_weight *
-                                      NormPdf<MotionModel::measurement_size>(
-                                          z.value, updated_hypothesis.predicted_measurement,
-                                          updated_hypothesis.innovation_matrix);
+          PhdHypothesis updated_hypothesis;
+          updated_hypothesis.weight =
+              pd_ * hypothesis.predicted_weight *
+              NormPdf<MotionModel::measurement_size>(z.value, hypothesis.predicted_measurement,
+                                                     hypothesis.innovation_matrix);
           updated_hypothesis.state =
               hypothesis.predicted_state +
               hypothesis.kalman_gain * (z.value - hypothesis.predicted_measurement);
-          updated_hypothesis.covariance = updated_hypothesis.predicted_covariance_aposteriori;
+          updated_hypothesis.covariance = hypothesis.predicted_covariance_aposteriori;
 
           new_hypothseses.push_back(updated_hypothesis);
         }
       };
 
-      const auto first_new_hypothesis_iterator = new_hypothseses.end();
-      std::for_each(working_hypothesis_begin, working_hypothesis_end, create_new);
+      std::for_each(working_hypotheses_.begin(), working_hypotheses_.end(), create_new);
 
-      const auto weights_sum = std::transform_reduce(
-          first_new_hypothesis_iterator, new_hypothseses.end(), 0.0, std::plus<>(),
-          [](const PhdHypothesis& hypothesis) { return hypothesis.weight; });
-      std::for_each(first_new_hypothesis_iterator, new_hypothseses.end(),
-                    [weights_sum, this](PhdHypothesis& hypothesis) {
-                      hypothesis.weight /= weights_sum + kappa_;
-                    });
-      // Add new hypotheses to the working list
-      working_hypotheses_.insert(working_hypotheses_.end(), new_hypothseses.begin(),
-                                 new_hypothseses.end());
+      const auto weights_sum =
+          std::transform_reduce(new_hypothseses.begin(), new_hypothseses.end(), 0.0, std::plus<>(),
+                                [](const PhdHypothesis& hypothesis) { return hypothesis.weight; });
+      for (auto& it : new_hypothseses) {
+        it.weight /= weights_sum + kappa_;
+      }
+      measurement_hypotheses.insert(measurement_hypotheses.end(), new_hypothseses.begin(),
+                                    new_hypothseses.end());
     }
+    working_hypotheses_.insert(working_hypotheses_.end(), measurement_hypotheses.begin(),
+                               measurement_hypotheses.end());
   }
 
   /**
@@ -325,7 +309,8 @@ class GmPhd : public CalibratedObject {
         merged.push_back(l);
 
         l.is_merged = true;
-        const auto inverse_l_cov = l.covariance.inverse();
+        const auto inverse_l_cov =
+            (l.covariance + 1.0e-9 * StateMatrix::Identity()).inverse();
 
         auto is_close = [&l, &inverse_l_cov, this](const PhdHypothesis& n) {
           const auto diff = n.state - l.state;
@@ -377,7 +362,7 @@ class GmPhd : public CalibratedObject {
   void ExtractObjects(void) {
     objects_.clear();
     for (const auto& hypothesis : output_hypotheses_) {
-      if (hypothesis.weight > 0.5) {
+      if (hypothesis.weight > extraction_threshold_) {
         objects_.push_back({hypothesis.state, hypothesis.covariance});
       }
     }
@@ -409,6 +394,8 @@ class GmPhd : public CalibratedObject {
       0.1;  ///< [-] Threshold for pruning hypotheses based on their weights
   double merging_threshold_ =
       3.0;  ///< [-] Threshold for merging hypotheses based on their Mahalanobis distance
+  double extraction_threshold_ =
+      0.5;  ///< [-] Minimum hypothesis weight for object extraction
 };
 };  //  namespace mot
 
