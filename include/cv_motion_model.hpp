@@ -29,6 +29,8 @@ class CvMotionModel {
   static const double& MeasurementX(const MeasurementVector& measurement);
   static const double& MeasurementY(const MeasurementVector& measurement);
 
+  static const Observer& GetObservationMatrix(void) { return observation_matrix_; }
+
  private:
   inline static StateMatrix transition_matrix_ = StateMatrix::Zero();
   inline static StateMatrix process_noise_covariance_matrix_ = StateMatrix::Zero();

@@ -19,7 +19,7 @@ class BirthModelDummy : public BirthModelBase<CvMotionModel> {
 
   ModelHypothesis PredictBirthHypothesis(void) {
     ModelHypothesis birth_hypothesis;
-    birth_hypothesis.weight = 1.0;
+    birth_hypothesis.weight = 0.5;
     birth_hypothesis.state = StateVector::Ones();
     birth_hypothesis.covariance = StateMatrix::Identity();
 
