@@ -1,6 +1,11 @@
 #ifndef GM_PHD_SRC_HELPERS_HPP_
 #define GM_PHD_SRC_HELPERS_HPP_
 
+#include <cmath>
+#include <numbers>
+#include <stdexcept>
+
+#include <Eigen/Cholesky>
 #include <Eigen/Dense>
 
 namespace mot {
@@ -35,10 +40,23 @@ using SensorPoseMatrix = Matrix<3u>;
  */
 template <size_t size>
 double NormPdf(const Vector<size>& z, const Vector<size>& nu, const Matrix<size>& cov) {
+  if (!z.allFinite() || !nu.allFinite() || !cov.allFinite()) {
+    throw std::domain_error("NormPdf requires finite inputs");
+  }
+
   const auto diff = z - nu;
-  const auto c = 1.0 / (std::sqrt(std::pow(std::numbers::pi, size) * cov.determinant()));
-  const auto e = std::exp(-0.5 * diff.transpose() * cov.inverse() * diff);
-  return c * e;
+  const Eigen::LLT<Matrix<size>> factorization(cov);
+  if (factorization.info() != Eigen::Success) {
+    throw std::domain_error("NormPdf covariance must be positive definite (determinant " +
+                            std::to_string(cov.determinant()) + ")");
+  }
+
+  const auto log_determinant =
+      2.0 * factorization.matrixL().toDenseMatrix().diagonal().array().log().sum();
+  const auto normalized_exponent =
+      -0.5 * (static_cast<double>(size) * std::log(2.0 * std::numbers::pi) + log_determinant);
+  const auto mahalanobis_distance = diff.dot(factorization.solve(diff));
+  return std::exp(normalized_exponent - 0.5 * mahalanobis_distance);
 }
 }  //  namespace mot
 

@@ -94,5 +94,10 @@
         "typeindex": "cpp",
         "variant": "cpp",
         "*.txx": "cpp"
-    }
+    },
+    "cSpell.words": [
+        "hypotheses",
+        "hypothesis",
+        "Hypothesis"
+    ]
 }
