@@ -32,8 +32,8 @@ random scene with a varying number of objects, dynamic births and deaths,
 measurements, filtering, and plots.
 
 The simulation sends all target and clutter measurements through the filter,
-including the measurement-conditioned birth model. The example uses a fixed
-random seed so runs are reproducible.
+including the measurement-conditioned birth model. The example uses fixed seeds
+so runs are reproducible.
 Its detection probability is set to 1 because the simulation does not generate
 missed target detections. The birth model's velocity variance matches the
 uniform `[-1, 1]` velocity prior used by the scene generator. Measurement-born
@@ -41,15 +41,24 @@ hypotheses use a low initial weight (`0.001`) to limit false tracks from
 clutter; the birth weight and clutter intensity should be retuned for different
 scenes. The example deliberately uses an observation covariance of `0.36 I`
 for generated measurements whose covariance is `0.09 I`, making tracks
-smoother at the cost of a small increase in localization error. With seed
-`20261018`, this all-measurements example reports a mean OSPA of about `1.87 m`;
-this depends on the simulation, initialization delay, and chosen calibrations
-and is not a general performance guarantee.
+smoother at the cost of a small increase in localization error. The reported
+OSPA depends on the simulation seeds and selected calibrations, and is not a
+general performance guarantee.
+
+Before plotting, the example now evaluates filter configurations on fifty
+deterministic simulation runs and tunes `ps`, `kappa`, the pruning threshold,
+the merging threshold, and the extraction threshold by coordinate search.
+Each candidate is scored by its mean OSPA across the same runs; the lowest
+scoring tested value is selected for each parameter in turn. `pd` stays at 1.0
+because this simulation does not generate missed detections. The plots show
+the selected configuration on the first run. This is a small reproducible
+search for this example, not a substitute for validation on held-out or
+application-specific data.
 
 ## Example
 
-The fixed-seed run writes six PNG plots to `fig/` in the current working
-directory. Each plot includes a legend:
+The tuned run writes six PNG plots to `fig/` in the current working directory.
+Each plot includes a legend:
 
 - `positions_xy.png` compares estimated object trajectories with simulated
   ground truth, noisy target measurements, and clutter in the XY plane.

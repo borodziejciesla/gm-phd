@@ -1,6 +1,7 @@
 #include <algorithm>
 #include <array>
 #include <filesystem>
+#include <initializer_list>
 #include <iostream>
 #include <limits>
 #include <map>
@@ -24,17 +25,18 @@ constexpr double ospa_cutoff = 10.0;
 constexpr double ospa_order = 2.0;
 
 constexpr unsigned int random_seed = 20261018u;
-std::mt19937 e1(random_seed);
-
-std::uniform_int_distribution<size_t> objects_number_dist(3u, 7u);
-std::uniform_int_distribution<size_t> start_dist(0u, measurements_number - 20u);
-std::uniform_int_distribution<size_t> duration_dist(20u, measurements_number);
-std::uniform_real_distribution<double> pose_dist(-10.0, 10.0);
-std::uniform_real_distribution<double> velocity_dist(-1.0, 1.0);
-std::uniform_real_distribution<double> clutter_position_dist(clutter_area_min, clutter_area_max);
-std::poisson_distribution<size_t> clutter_count_dist(8.0);
 using Filter = gm_phd_example::GmPhdCv;
 using Measurements = std::vector<Filter::Measurement>;
+
+struct FilterParameters {
+  double pd = 1.0;
+  double ps = 0.95;
+  double kappa =
+      8.0 / ((clutter_area_max - clutter_area_min) * (clutter_area_max - clutter_area_min));
+  double truncation_threshold = 0.01;
+  double merging_threshold = 4.0;
+  double extraction_threshold = 0.5;
+};
 
 struct SimulatedObject {
   size_t first_scan;
@@ -49,21 +51,39 @@ struct Simulation {
   std::vector<Measurements> clutter;
 };
 
-Simulation GenerateSimulation(void) {
+struct ExperimentResult {
+  std::vector<std::vector<Filter::Object>> objects_by_scan;
+  std::vector<int> object_count;
+  std::vector<int> truth_object_count;
+  std::vector<double> weights_sum;
+  std::vector<double> ospa_scores;
+  double mean_ospa = 0.0;
+};
+
+Simulation GenerateSimulation(const unsigned int seed) {
+  std::mt19937 random_engine(seed);
+  std::uniform_int_distribution<size_t> objects_number_dist(3u, 7u);
+  std::uniform_int_distribution<size_t> start_dist(0u, measurements_number - 20u);
+  std::uniform_int_distribution<size_t> duration_dist(20u, measurements_number);
+  std::uniform_real_distribution<double> pose_dist(-10.0, 10.0);
+  std::uniform_real_distribution<double> velocity_dist(-1.0, 1.0);
+  std::uniform_real_distribution<double> clutter_position_dist(clutter_area_min, clutter_area_max);
+  std::poisson_distribution<size_t> clutter_count_dist(8.0);
   std::normal_distribution<double> measurement_noise(0.0, 0.3);
+  const auto draw = [&random_engine](auto& distribution) { return distribution(random_engine); };
   Simulation simulation{std::vector<Measurements>(measurements_number),
                         std::vector<Measurements>(measurements_number),
                         std::vector<Measurements>(measurements_number),
                         std::vector<Measurements>(measurements_number)};
-  const auto objects_number = objects_number_dist(e1);
+  const auto objects_number = draw(objects_number_dist);
   std::vector<SimulatedObject> objects;
   objects.reserve(objects_number);
 
   for (size_t index = 0u; index < objects_number; ++index) {
-    const auto first_scan = start_dist(e1);
-    const auto last_scan = std::min(measurements_number - 1u, first_scan + duration_dist(e1));
+    const auto first_scan = draw(start_dist);
+    const auto last_scan = std::min(measurements_number - 1u, first_scan + draw(duration_dist));
     SimulatedObject object{first_scan, last_scan, Filter::StateVector::Zero()};
-    object.state << pose_dist(e1), velocity_dist(e1), pose_dist(e1), velocity_dist(e1);
+    object.state << draw(pose_dist), draw(velocity_dist), draw(pose_dist), draw(velocity_dist);
     objects.push_back(object);
   }
 
@@ -79,16 +99,16 @@ Simulation GenerateSimulation(void) {
       simulation.truth.at(scan).push_back(truth);
 
       auto measurement = truth;
-      measurement.value(0u) += measurement_noise(e1);
-      measurement.value(1u) += measurement_noise(e1);
+      measurement.value(0u) += draw(measurement_noise);
+      measurement.value(1u) += draw(measurement_noise);
       measurement.covariance = 0.09 * Filter::MeasurementMatrix::Identity();
       simulation.target_measurements.at(scan).push_back(measurement);
       simulation.measurements.at(scan).push_back(measurement);
     }
 
-    for (size_t clutter_index = 0u; clutter_index < clutter_count_dist(e1); ++clutter_index) {
+    for (size_t clutter_index = 0u; clutter_index < draw(clutter_count_dist); ++clutter_index) {
       Filter::Measurement clutter;
-      clutter.value << clutter_position_dist(e1), clutter_position_dist(e1);
+      clutter.value << draw(clutter_position_dist), draw(clutter_position_dist);
       clutter.covariance = 0.09 * Filter::MeasurementMatrix::Identity();
       simulation.clutter.at(scan).push_back(clutter);
       simulation.measurements.at(scan).push_back(clutter);
@@ -216,29 +236,30 @@ void SaveAndShow(const std::filesystem::path& output_path) {
   plt::close();
 }
 
-int main() {
-  Filter gm_phd_filter;
-  constexpr double clutter_intensity =
-      8.0 / ((clutter_area_max - clutter_area_min) * (clutter_area_max - clutter_area_min));
-  gm_phd_filter.SetCalibrations("pd", 1.0, "ps", 0.95, "kappa", clutter_intensity,
-                                "truncation_threshold", 0.01, "merging_threshold", 4.0,
-                                "extraction_threshold", 0.5);
-  const auto simulation = GenerateSimulation();
-  std::cout << "Random seed: " << random_seed << '\n';
+ExperimentResult RunExperiment(const Simulation& simulation, const FilterParameters& parameters,
+                               const bool print_scan_metrics = false) {
+  Filter filter;
+  const auto calibration = filter.SetCalibrations(
+      "pd", parameters.pd, "ps", parameters.ps, "kappa", parameters.kappa, "truncation_threshold",
+      parameters.truncation_threshold, "merging_threshold", parameters.merging_threshold,
+      "extraction_threshold", parameters.extraction_threshold);
+  if (!calibration) {
+    throw std::runtime_error("Failed to set filter calibrations: " + calibration.error());
+  }
 
-  // Run Filter
-  std::vector<std::vector<Filter::Object>> objects_all;
-  std::vector<int> objects_number;
-  std::vector<int> truth_objects_number;
-  std::vector<double> weights_sum;
-  std::vector<double> ospa_scores;
+  ExperimentResult result;
+  result.objects_by_scan.reserve(measurements_number);
+  result.object_count.reserve(measurements_number);
+  result.truth_object_count.reserve(measurements_number);
+  result.weights_sum.reserve(measurements_number);
+  result.ospa_scores.reserve(measurements_number);
   for (auto index = 0u; index < measurements_number; index++) {
-    gm_phd_filter.Run(static_cast<double>(index + 1u) * dt, simulation.measurements.at(index));
-    const auto objects = gm_phd_filter.GetObjects();
-    objects_all.push_back(objects);
-    objects_number.push_back(objects.size());
-    truth_objects_number.push_back(simulation.truth.at(index).size());
-    weights_sum.push_back(gm_phd_filter.GetWeightsSum());
+    filter.Run(static_cast<double>(index + 1u) * dt, simulation.measurements.at(index));
+    const auto& objects = filter.GetObjects();
+    result.objects_by_scan.push_back(objects);
+    result.object_count.push_back(static_cast<int>(objects.size()));
+    result.truth_object_count.push_back(static_cast<int>(simulation.truth.at(index).size()));
+    result.weights_sum.push_back(filter.GetWeightsSum());
     std::vector<mot::OspaPosition> estimated_positions;
     estimated_positions.reserve(objects.size());
     for (const auto& object : objects) {
@@ -249,21 +270,69 @@ int main() {
     for (const auto& target : simulation.truth.at(index)) {
       true_positions.push_back({target.value(0u), target.value(1u)});
     }
-    ospa_scores.push_back(
+    result.ospa_scores.push_back(
         mot::OspaDistance(estimated_positions, true_positions, ospa_cutoff, ospa_order));
-    std::cout << "Scan index: " << index << ", Objects number: " << objects.size()
-              << ", Truth objects: " << simulation.truth.at(index).size()
-              << ", Weights Sum: " << gm_phd_filter.GetWeightsSum()
-              << ", OSPA: " << ospa_scores.back() << " m\n";
+    if (print_scan_metrics) {
+      std::cout << "Scan index: " << index << ", Objects number: " << objects.size()
+                << ", Truth objects: " << simulation.truth.at(index).size()
+                << ", Weights Sum: " << filter.GetWeightsSum()
+                << ", OSPA: " << result.ospa_scores.back() << " m\n";
+    }
   }
-  const auto mean_ospa =
-      std::accumulate(ospa_scores.begin(), ospa_scores.end(), 0.0) / ospa_scores.size();
-  std::cout << "Mean OSPA (c=" << ospa_cutoff << " m, p=" << ospa_order << "): " << mean_ospa
-            << " m\n";
+  result.mean_ospa = std::accumulate(result.ospa_scores.begin(), result.ospa_scores.end(), 0.0) /
+                     result.ospa_scores.size();
+  return result;
+}
 
+double EvaluateParameters(const FilterParameters& parameters,
+                          const std::vector<Simulation>& simulations) {
+  auto total_ospa = 0.0;
+  for (const auto& simulation : simulations) {
+    total_ospa += RunExperiment(simulation, parameters).mean_ospa;
+  }
+  return total_ospa / simulations.size();
+}
+
+FilterParameters TuneParameters(const std::vector<Simulation>& simulations) {
+  FilterParameters best;
+  auto best_score = EvaluateParameters(best, simulations);
+  std::cout << "Initial mean OSPA: " << best_score << " m\n";
+
+  auto tune_parameter = [&](const std::string& name, double FilterParameters::* parameter,
+                            const std::initializer_list<double> candidates) {
+    auto parameter_best = best;
+    auto parameter_best_score = best_score;
+    for (const auto value : candidates) {
+      auto candidate = best;
+      candidate.*parameter = value;
+      const auto score = EvaluateParameters(candidate, simulations);
+      std::cout << "  " << name << '=' << value << " -> mean OSPA " << score << " m\n";
+      if (score < parameter_best_score) {
+        parameter_best = candidate;
+        parameter_best_score = score;
+      }
+    }
+    best = parameter_best;
+    best_score = parameter_best_score;
+    std::cout << "  Selected " << name << '=' << best.*parameter << " (mean OSPA " << best_score
+              << " m)\n";
+  };
+
+  tune_parameter("ps", &FilterParameters::ps, {0.8, 0.85, 0.90, 0.95, 0.99});
+  tune_parameter("kappa", &FilterParameters::kappa, {0.005, 0.01, 0.02, 0.05});
+  tune_parameter("truncation_threshold", &FilterParameters::truncation_threshold,
+                 {0.005, 0.01, 0.02, 0.04, 0.08, 0.1});
+  tune_parameter("merging_threshold", &FilterParameters::merging_threshold,
+                 {0.5, 1.0, 1.5, 2.0, 2.25, 2.5, 2.75, 3.0, 3.5, 4.0, 6.0, 8.0});
+  tune_parameter("extraction_threshold", &FilterParameters::extraction_threshold,
+                 {0.3, 0.4, 0.5, 0.6, 0.7, 0.8});
+  return best;
+}
+
+void SavePlots(const Simulation& simulation, const ExperimentResult& result) {
   const auto output_directory = std::filesystem::current_path() / "fig";
   std::filesystem::create_directories(output_directory);
-  const auto estimated_trajectories = BuildEstimatedTrajectories(objects_all);
+  const auto estimated_trajectories = BuildEstimatedTrajectories(result.objects_by_scan);
   std::vector<double> objects_x;
   std::vector<double> objects_y;
   std::vector<double> objects_time;
@@ -339,29 +408,55 @@ int main() {
   plt::title("Extracted count (blue) vs ground truth (red)");
   plt::xlabel("Time [s]");
   plt::ylabel("Extracted object count [-]");
-  PlotSeries(scan_times, std::vector<double>(objects_number.begin(), objects_number.end()),
-             "Estimated objects", "blue", ".");
   PlotSeries(scan_times,
-             std::vector<double>(truth_objects_number.begin(), truth_objects_number.end()),
-             "Ground truth", "red", "", "-");
+             std::vector<double>(result.object_count.begin(), result.object_count.end()),
+             "Estimated objects", "blue", ".");
+  PlotSeries(
+      scan_times,
+      std::vector<double>(result.truth_object_count.begin(), result.truth_object_count.end()),
+      "Ground truth", "red", "", "-");
   SaveAndShow(output_directory / "object_count.png");
 
   plt::figure_size(1200, 780);
   plt::title("PHD weight sum vs ground truth object count");
   plt::xlabel("Time [s]");
   plt::ylabel("Sum of hypothesis weights [-]");
-  PlotSeries(scan_times,
-             std::vector<double>(truth_objects_number.begin(), truth_objects_number.end()),
-             "Ground truth object count", "red", "", "--");
-  PlotSeries(scan_times, weights_sum, "PHD weight sum", "blue", "o", "-");
+  PlotSeries(
+      scan_times,
+      std::vector<double>(result.truth_object_count.begin(), result.truth_object_count.end()),
+      "Ground truth object count", "red", "", "--");
+  PlotSeries(scan_times, result.weights_sum, "PHD weight sum", "blue", "o", "-");
   SaveAndShow(output_directory / "phd_weight_sum.png");
 
   plt::figure_size(1200, 780);
   plt::title("OSPA distance (c=10 m, p=2)");
   plt::xlabel("Time [s]");
   plt::ylabel("OSPA [m]");
-  PlotSeries(scan_times, ospa_scores, "OSPA", "blue", "", "-");
+  PlotSeries(scan_times, result.ospa_scores, "OSPA", "blue", "", "-");
   SaveAndShow(output_directory / "ospa.png");
+}
 
+int main() {
+  constexpr size_t tuning_runs = 50u;
+  std::vector<Simulation> simulations;
+  simulations.reserve(tuning_runs);
+  for (size_t run = 0u; run < tuning_runs; ++run) {
+    const auto seed = random_seed + static_cast<unsigned int>(run);
+    std::cout << "Generated tuning run with seed: " << seed << '\n';
+    simulations.push_back(GenerateSimulation(seed));
+  }
+
+  const auto best_parameters = TuneParameters(simulations);
+  const auto best_result = RunExperiment(simulations.front(), best_parameters, true);
+  std::cout << "Selected parameters: pd=" << best_parameters.pd << ", ps=" << best_parameters.ps
+            << ", kappa=" << best_parameters.kappa
+            << ", truncation_threshold=" << best_parameters.truncation_threshold
+            << ", merging_threshold=" << best_parameters.merging_threshold
+            << ", extraction_threshold=" << best_parameters.extraction_threshold << '\n'
+            << "Mean OSPA on selected plot run (c=" << ospa_cutoff << " m, p=" << ospa_order
+            << "): " << best_result.mean_ospa << " m\n"
+            << "Mean OSPA across tuning runs: " << EvaluateParameters(best_parameters, simulations)
+            << " m\n";
+  SavePlots(simulations.front(), best_result);
   return 0;
 }
