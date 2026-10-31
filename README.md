@@ -29,7 +29,8 @@ hypotheses. This makes it possible to track targets that can:
 
 The current example uses a constant-velocity (CV) motion model and generates a
 random scene with a varying number of objects, dynamic births and deaths,
-measurements, filtering, and plots.
+measurements, filtering, and plots. Ground-truth objects follow smooth
+constant-turn-rate trajectories, while the filter retains its CV motion model.
 
 The simulation sends all target and clutter measurements through the filter,
 including the measurement-conditioned birth model. The example uses fixed seeds

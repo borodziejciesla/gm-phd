@@ -1,5 +1,6 @@
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <filesystem>
 #include <initializer_list>
 #include <iostream>
@@ -24,7 +25,7 @@ constexpr double clutter_area_max = 20.0;
 constexpr double ospa_cutoff = 10.0;
 constexpr double ospa_order = 2.0;
 
-constexpr unsigned int random_seed = 20261018u;
+constexpr unsigned int random_seed = 0;  // 20261018u;
 using Filter = gm_phd_example::GmPhdCv;
 using Measurements = std::vector<Filter::Measurement>;
 
@@ -42,6 +43,7 @@ struct SimulatedObject {
   size_t first_scan;
   size_t last_scan;
   Filter::StateVector state;
+  double turn_rate;
 };
 
 struct Simulation {
@@ -67,6 +69,8 @@ Simulation GenerateSimulation(const unsigned int seed) {
   std::uniform_int_distribution<size_t> duration_dist(20u, measurements_number);
   std::uniform_real_distribution<double> pose_dist(-10.0, 10.0);
   std::uniform_real_distribution<double> velocity_dist(-1.0, 1.0);
+  std::uniform_real_distribution<double> turn_rate_dist(0.08, 0.2);
+  std::bernoulli_distribution turn_direction_dist(0.5);
   std::uniform_real_distribution<double> clutter_position_dist(clutter_area_min, clutter_area_max);
   std::poisson_distribution<size_t> clutter_count_dist(8.0);
   std::normal_distribution<double> measurement_noise(0.0, 0.3);
@@ -82,8 +86,9 @@ Simulation GenerateSimulation(const unsigned int seed) {
   for (size_t index = 0u; index < objects_number; ++index) {
     const auto first_scan = draw(start_dist);
     const auto last_scan = std::min(measurements_number - 1u, first_scan + draw(duration_dist));
-    SimulatedObject object{first_scan, last_scan, Filter::StateVector::Zero()};
+    SimulatedObject object{first_scan, last_scan, Filter::StateVector::Zero(), 0.0};
     object.state << draw(pose_dist), draw(velocity_dist), draw(pose_dist), draw(velocity_dist);
+    object.turn_rate = draw(turn_rate_dist) * (draw(turn_direction_dist) ? 1.0 : -1.0);
     objects.push_back(object);
   }
 
@@ -93,9 +98,15 @@ Simulation GenerateSimulation(const unsigned int seed) {
         continue;
       }
       const auto elapsed = static_cast<double>(scan - object.first_scan) * dt;
+      const auto turn_angle = object.turn_rate * elapsed;
+      const auto sin_turn = std::sin(turn_angle);
+      const auto cos_turn = std::cos(turn_angle);
       Filter::Measurement truth;
-      truth.value << object.state(0u) + elapsed * object.state(1u),
-          object.state(2u) + elapsed * object.state(3u);
+      truth.value << object.state(0u) +
+                         (object.state(1u) * sin_turn + object.state(3u) * (cos_turn - 1.0)) /
+                             object.turn_rate,
+          object.state(2u) + (object.state(1u) * (1.0 - cos_turn) + object.state(3u) * sin_turn) /
+                                 object.turn_rate;
       simulation.truth.at(scan).push_back(truth);
 
       auto measurement = truth;
